@@ -146,6 +146,54 @@ export function episodeSnapshot(patient) {
   };
 }
 
+export function longitudinalSummary(records, profile) {
+  const chronological = [...(records || [])].sort((left, right) => (
+    String(left.patient?.episode?.startDate || '').localeCompare(String(right.patient?.episode?.startDate || ''))
+  ));
+  const valid = chronological.filter((record) => record.patient);
+  if (!valid.length) return [{ label: 'Episode history', value: 'No inpatient episode data is available to summarize.' }];
+
+  const dates = valid.map((record) => record.patient.episode?.startDate).filter(Boolean).sort();
+  const span = dates.length
+    ? dates.length === 1 ? shortDate(dates[0]) : `${shortDate(dates[0])} to ${shortDate(dates.at(-1))}`
+    : 'dates not recorded';
+  const primaryDiagnoses = valid.map(({ patient }) => {
+    const diagnosis = patient.diagnoses?.find((item) => item.isPrimary) || patient.diagnoses?.[0];
+    return diagnosis?.diagnosis ? `${patient.episode?.startDate ? `${shortDate(patient.episode.startDate)}: ` : ''}${clean(diagnosis.diagnosis)}` : '';
+  }).filter(Boolean);
+  const primaryLabels = new Set(primaryDiagnoses.map((item) => item.replace(/^.*?: /, '').toLocaleLowerCase()));
+  const diagnosesText = primaryDiagnoses.length
+    ? `Primary diagnoses recorded: ${sortedUnique(primaryDiagnoses).slice(0, 3).join('; ')}.`
+    : 'No primary diagnoses are marked in the available episode records.';
+  const conditions = profile.conditions.filter((condition) => !primaryLabels.has(condition.label.toLocaleLowerCase())).slice(0, 4).map((condition) => condition.label);
+  const conditionsText = conditions.length
+    ? `Additional diagnoses/problems recorded: ${conditions.join('; ')}${profile.conditions.length - conditions.length - primaryLabels.size > 0 ? `, plus ${profile.conditions.length - conditions.length - primaryLabels.size} more` : ''}.`
+    : 'No additional diagnosis/problem entries were returned.';
+  const medicationStatuses = sortedUnique(profile.medications.flatMap((medication) => medication.statuses));
+  const medicationText = profile.medications.length
+    ? `${profile.medications.length} distinct medication name/route entries; recorded statuses: ${medicationStatuses.join(', ') || 'not recorded'}. See courses below; current use is not inferred.`
+    : 'No medication records were returned for the loaded episodes.';
+
+  return [
+    { label: 'Episode history', value: `${valid.length} inpatient episode${valid.length === 1 ? '' : 's'} · ${span}` },
+    { label: 'Primary diagnoses', value: diagnosesText },
+    { label: 'Other recorded conditions', value: conditionsText },
+    { label: 'Medication history', value: medicationText },
+  ];
+}
+
+export function episodeSummary(patient) {
+  const snapshot = episodeSnapshot(patient);
+  const primary = patient?.diagnoses?.find((diagnosis) => diagnosis.isPrimary)?.diagnosis;
+  const leadingDiagnosis = primary || snapshot.diagnoses[0];
+  const complaints = snapshot.complaints.slice(0, 3);
+  const parts = [];
+  if (leadingDiagnosis) parts.push(`Diagnosis recorded: ${clean(leadingDiagnosis)}.`);
+  if (complaints.length) parts.push(`Presenting concerns: ${complaints.join('; ')}.`);
+  parts.push(`The episode contains ${snapshot.noteCount} notes, ${snapshot.medicationCount} medication records, and ${snapshot.labOrderCount + snapshot.radiologyOrderCount} test/imaging orders.`);
+  return parts.join(' ');
+}
+
 export function shortDate(value) {
   if (!value) return 'Date not recorded';
   const isoDate = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);

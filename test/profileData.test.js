@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildPatientProfile, episodeSnapshot, metricSeries } from '../client/src/profileData.js';
+import { buildPatientProfile, episodeSnapshot, episodeSummary, longitudinalSummary, metricSeries } from '../client/src/profileData.js';
 
 test('longitudinal profile merges repeated conditions and medication courses while retaining episodes', () => {
   const profile = buildPatientProfile([
@@ -38,4 +38,26 @@ test('episode snapshot counts recorded material and does not synthesize missing 
     labOrderCount: 0,
     radiologyOrderCount: 0,
   });
+});
+
+test('clinical summaries use only recorded diagnoses, complaints, and episode counts', () => {
+  const patient = {
+    episodeId: '1-2025',
+    episode: { startDate: '2025-01-12' },
+    diagnoses: [{ diagnosis: 'Recorded condition', isPrimary: true }],
+    complaints: [{ name: 'Recorded complaint' }],
+    notes: [{}, {}],
+    medications: [{}],
+    labOrders: [{}],
+    radOrders: [],
+  };
+  const records = [{ patient }];
+  const profile = buildPatientProfile(records);
+  const summaryFacts = longitudinalSummary(records, profile);
+  const summary = summaryFacts.map((item) => item.value).join(' ');
+  assert.match(summary, /1 inpatient episode/);
+  assert.match(summary, /Recorded condition/);
+  assert.deepEqual(summaryFacts.map((item) => item.label), ['Episode history', 'Primary diagnoses', 'Other recorded conditions', 'Medication history']);
+  assert.match(episodeSummary(patient), /Recorded complaint/);
+  assert.doesNotMatch(summary, /improved|stable|resolved/i);
 });

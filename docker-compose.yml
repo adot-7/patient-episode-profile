@@ -1,0 +1,24 @@
+services:
+  patient-episode-profile:
+    build:
+      context: .
+      args:
+        APP_BASE_PATH: ${APP_BASE_PATH:-/}
+    image: patient-episode-profile:local
+    restart: unless-stopped
+    environment:
+      PORT: "3002"
+      APP_BASE_PATH: ${APP_BASE_PATH:-/}
+      SANSYS_BASE_URL: ${SANSYS_BASE_URL:-http://182.70.249.137:5050}
+      SANSYS_TIMEOUT_MS: ${SANSYS_TIMEOUT_MS:-30000}
+    ports:
+      - "${PROFILE_BIND_ADDRESS:-127.0.0.1}:${PROFILE_HOST_PORT:-3002}:3002"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "const p=process.env.APP_BASE_PATH==='/'?'':'/'+process.env.APP_BASE_PATH.split('/').filter(Boolean).join('/');fetch('http://127.0.0.1:3002'+p+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchEpisode, fetchPatientShell } from './api.js';
-import { buildPatientProfile, episodeSnapshot, shortDate } from './profileData.js';
+import { buildPatientProfile, episodeSnapshot, episodeSummary, longitudinalSummary, shortDate } from './profileData.js';
 import VitalsChart from './VitalsChart.jsx';
 
 const OVERVIEW = '__overview__';
@@ -25,17 +25,77 @@ function uniqueProvenance(facts) {
   });
 }
 
-function SourceDetails({ facts }) {
-  const sources = uniqueProvenance(facts);
-  if (!sources.length) return null;
-  return <details className="source-details">
-    <summary>View source record{sources.length === 1 ? '' : 's'} ({sources.length})</summary>
-    <ul>{sources.map((source, index) => <li key={`${source.endpoint}-${source.path}-${index}`}>
-      <strong>{source.noteTitle || source.endpoint || 'Clinical record'}</strong>
-      {source.noteDate && <span> · {source.noteDate}</span>}
-      {source.path && <code>{source.path}</code>}
-      {source.episodeId && <span>Episode {source.episodeId}</span>}
-    </li>)}</ul>
+function ProvenanceAppendix({ records }) {
+  const noteSources = new Map();
+  const endpointSources = new Map();
+
+  for (const record of records) {
+    const patient = record.patient;
+    const episode = patient.episode?.label || patient.episodeId;
+    const facts = [
+      ...(patient.notes || []),
+      ...(patient.diagnoses || []),
+      ...(patient.problems || []),
+      ...(patient.complaints || []),
+      ...(patient.medications || []),
+      ...(patient.allergies?.items || []),
+      ...(patient.labOrders || []),
+      ...(patient.radOrders || []),
+      ...(patient.vitals || []),
+    ];
+    for (const source of uniqueProvenance(facts)) {
+      if (source.sourceType === 'clinical-note') {
+        const key = `${patient.episodeId}|${source.noteIen || source.endpoint}`;
+        const item = noteSources.get(key) || {
+          episodeId: patient.episodeId,
+          episode,
+          title: source.noteTitle || source.endpoint,
+          noteDate: source.noteDate || '',
+          paths: new Set(),
+        };
+        if (source.path) item.paths.add(source.path);
+        noteSources.set(key, item);
+        continue;
+      }
+      const key = `${patient.episodeId}|${source.endpoint}|${source.path}`;
+      const item = endpointSources.get(key) || {
+        episodeId: source.episodeId || patient.episodeId,
+        episode,
+        endpoint: source.endpoint || 'Sansys endpoint',
+        path: source.path || '',
+        count: 0,
+      };
+      item.count += 1;
+      endpointSources.set(key, item);
+    }
+  }
+
+  const notes = [...noteSources.values()].sort((a, b) => String(b.noteDate).localeCompare(String(a.noteDate)));
+  const endpoints = [...endpointSources.values()].sort((a, b) => a.episode.localeCompare(b.episode) || a.endpoint.localeCompare(b.endpoint));
+  if (!notes.length && !endpoints.length) return null;
+
+  return <details className="provenance-appendix">
+    <summary>Source provenance · {notes.length} clinical notes · {endpoints.length} endpoint groups</summary>
+    <div className="provenance-appendix-content">
+      {notes.length > 0 && <section>
+        <h3>Clinical note sources</h3>
+        <div className="table-wrap"><table className="provenance-table">
+          <thead><tr><th>Episode</th><th>Note</th><th>Date</th><th>Source paths</th></tr></thead>
+          <tbody>{notes.map((item, index) => <tr key={`${item.episodeId}-${item.title}-${index}`}>
+            <td>{item.episode}</td><td>{item.title}</td><td>{item.noteDate || 'Not recorded'}</td><td>{[...item.paths].join('; ')}</td>
+          </tr>)}</tbody>
+        </table></div>
+      </section>}
+      {endpoints.length > 0 && <section>
+        <h3>Sansys endpoint sources</h3>
+        <div className="table-wrap"><table className="provenance-table">
+          <thead><tr><th>Episode</th><th>Endpoint</th><th>Response path</th><th>Facts</th></tr></thead>
+          <tbody>{endpoints.map((item, index) => <tr key={`${item.episodeId}-${item.endpoint}-${item.path}-${index}`}>
+            <td>{item.episode}</td><td>{item.endpoint}</td><td>{item.path}</td><td>{item.count}</td>
+          </tr>)}</tbody>
+        </table></div>
+      </section>}
+    </div>
   </details>;
 }
 
@@ -82,82 +142,80 @@ function PatientHeading({ patient, dfn }) {
   </div>;
 }
 
-function ClinicalReviewNotice({ failedCount }) {
+function ClinicalReviewNotice({ failedCount, provisionalMedicationCount }) {
   return <aside className="review-notice" aria-label="Clinical review notice">
     <span className="notice-symbol" aria-hidden="true">!</span>
     <div>
-      <strong>Clinical review required</strong>
-      <p>This read-only profile consolidates recorded Sansys data to help orient the receiving team. It does not replace review of the original chart. Verify diagnoses, medication status and course, note-sourced facts, and vital trends before clinical decisions. Lab/radiology entries are orders; result values may not be available here.{failedCount > 0 && ` ${failedCount} episode${failedCount === 1 ? '' : 's'} could not be loaded; see the episode list for details.`}</p>
+      <strong>Use this summary to orient—not replace—review of the original chart.</strong>
+      <p>Confirm diagnoses, medication status, and recorded trends before decisions. Test entries are orders; results may not be present. {provisionalMedicationCount > 0 && `${provisionalMedicationCount} medication record${provisionalMedicationCount === 1 ? ' is' : 's are'} documented in notes without a matching order; verify before prescribing. `}{failedCount > 0 && `${failedCount} episode${failedCount === 1 ? '' : 's'} could not be loaded; details are listed below. `}Source details are at the end of this profile.</p>
     </div>
   </aside>;
-}
-
-function StatStrip({ records, profile }) {
-  const notes = records.reduce((total, record) => total + (record.patient?.notes?.length || 0), 0);
-  const medOrders = records.reduce((total, record) => total + (record.patient?.medications?.length || 0), 0);
-  return <div className="stat-strip">
-    <div><strong>{records.length}</strong><span>Episodes loaded</span></div>
-    <div><strong>{profile.conditions.length}</strong><span>Distinct conditions</span></div>
-    <div><strong>{medOrders}</strong><span>Medication records</span></div>
-    <div><strong>{notes}</strong><span>Clinical notes</span></div>
-  </div>;
 }
 
 function PatientOverview({ shell, records, profile, failedRecords, onEpisode }) {
   const conditions = profile.conditions;
   const allergies = profile.allergies.length ? profile.allergies : (shell?.allergies?.items || []);
-  const episodePatients = records.map((record) => record.patient);
+  const summaryFacts = longitudinalSummary(records, profile);
+  const medications = [...profile.medications].sort((left, right) => (
+    Number(right.statuses.some((status) => status.toLowerCase() === 'active'))
+      - Number(left.statuses.some((status) => status.toLowerCase() === 'active'))
+    || left.name.localeCompare(right.name)
+  ));
+  const visibleConditions = conditions.slice(0, 8);
+  const visibleMedications = medications.slice(0, 10);
   return <div className="view-stack">
     <div className="view-title-row">
-      <div><div className="eyebrow">Longitudinal summary</div><h1>Patient overview</h1><p>A cross-episode view of recorded history and clinical trends.</p></div>
-      <span className="record-count">{records.length} episode{records.length === 1 ? '' : 's'} in view</span>
+      <div><div className="eyebrow">Longitudinal patient record</div><h1>Patient overview</h1><p>{records.length} inpatient episode{records.length === 1 ? '' : 's'} · compiled from recorded Sansys entries</p></div>
     </div>
-    <StatStrip records={records} profile={profile} />
+    <div className="overview-brief-grid">
+      <section className="clinical-summary-brief">
+        <h2>Longitudinal summary</h2>
+        <dl>{summaryFacts.map((fact) => <div key={fact.label}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>)}</dl>
+      </section>
+      <section className="allergy-brief" aria-label="Recorded allergies">
+        <h2>Allergies</h2>
+        {allergies.length
+          ? <ul>{allergies.map((allergy, index) => <li key={`${allergy.allergy}-${index}`}><strong>{allergy.allergy}</strong>{allergy.reaction && ` · ${allergy.reaction}`}{allergy.symptoms && ` · ${allergy.symptoms}`}</li>)}</ul>
+          : <p>{shell?.allergies?.status || 'No allergy items returned.'}</p>}
+        <small>Confirm in the active chart before prescribing.</small>
+      </section>
+    </div>
+    <Card title="Episode timeline" eyebrow="Select an episode to open its summary" className="span-two timeline-summary-card">
+      {records.length ? <div className="timeline-list">{records.map((record) => {
+        const patient = record.patient;
+        const snapshot = episodeSnapshot(patient);
+        const primary = patient.diagnoses?.find((diagnosis) => diagnosis.isPrimary)?.diagnosis || snapshot.diagnoses[0];
+        return <button type="button" className="timeline-card" key={patient.episodeId} onClick={() => onEpisode(patient.episodeId)}>
+          <span className="timeline-point" />
+          <span className="timeline-date">{patient.episode?.startDate ? shortDate(patient.episode.startDate) : 'Date not recorded'}</span>
+          <strong>{episodeLabel(patient.episode)}</strong>
+          <span>{primary || 'No diagnosis recorded'}{snapshot.complaints.length ? ` · ${snapshot.complaints.slice(0, 2).join('; ')}` : ''}</span>
+        </button>;
+      })}</div> : <Empty />}
+    </Card>
+    <Card title="Vital-sign trends" eyebrow="Measurements across loaded episodes" className="span-two">
+      <TrendCards readings={profile.vitalReadings} />
+    </Card>
     <div className="overview-grid">
-      <Card title="Conditions across episodes" eyebrow="Recorded diagnoses & problems" className="span-two">
-        {conditions.length ? <div className="condition-list">{conditions.map((condition) => <article className="condition-row" key={`${condition.kind}-${condition.label}`}>
-          <div className="condition-main"><strong>{condition.label}</strong><div className="condition-meta"><span>{condition.kind}</span>{condition.primary && <StatusPill tone="blue">Primary diagnosis</StatusPill>}{condition.statuses.map((status) => <StatusPill key={status}>{status}</StatusPill>)}</div></div>
+      <Card title="Conditions recorded" eyebrow="Diagnoses and problem list">
+        {visibleConditions.length ? <div className="condition-list">{visibleConditions.map((condition) => <article className="condition-row" key={`${condition.kind}-${condition.label}`}>
+          <div className="condition-main"><strong>{condition.label}</strong><div className="condition-meta"><span>{condition.kind}</span>{condition.primary && <StatusPill tone="blue">Primary</StatusPill>}{condition.statuses.map((status) => <StatusPill key={status}>{status}</StatusPill>)}</div></div>
           <div className="condition-episodes">{condition.episodes.map((episode) => <button type="button" className="text-link" key={episode.id} onClick={() => onEpisode(episode.id)}>{episode.date || episode.id}</button>)}</div>
-          <SourceDetails facts={[condition]} />
         </article>)}</div> : <Empty />}
+        {conditions.length > visibleConditions.length && <details className="more-records"><summary>Show {conditions.length - visibleConditions.length} more recorded conditions</summary><div className="condition-list">{conditions.slice(visibleConditions.length).map((condition) => <article className="condition-row" key={`${condition.kind}-${condition.label}`}><div className="condition-main"><strong>{condition.label}</strong><div className="condition-meta"><span>{condition.kind}</span>{condition.statuses.map((status) => <StatusPill key={status}>{status}</StatusPill>)}</div></div><div className="condition-episodes">{condition.episodes.map((episode) => <button type="button" className="text-link" key={episode.id} onClick={() => onEpisode(episode.id)}>{episode.date || episode.id}</button>)}</div></article>)}</div></details>}
       </Card>
-      <Card title="Allergies" eyebrow="Patient safety" className="allergy-card">
-        {allergies.length ? <div className="allergy-list">{allergies.map((allergy, index) => <article className="allergy-row" key={`${allergy.allergy}-${index}`}>
-          <strong>{allergy.allergy}</strong>
-          <span>{[allergy.reaction, allergy.symptoms].filter(Boolean).join(' · ') || 'Reaction details not recorded'}</span>
-          {allergy.date && <small>Recorded {allergy.date}</small>}
-          <SourceDetails facts={[allergy]} />
-        </article>)}</div> : <Empty>{shell?.allergies?.status || 'No allergy item is recorded.'}</Empty>}
-        <div className="caution-inline">Confirm allergy status in the active chart before prescribing.</div>
-      </Card>
-      <Card title="Medication history" eyebrow="Across loaded episodes" className="span-two">
-        {profile.medications.length ? <div className="table-wrap"><table className="clinical-table">
-          <thead><tr><th>Medication</th><th>Route / schedule</th><th>Recorded status</th><th>Recorded course</th><th>Episodes</th></tr></thead>
-          <tbody>{profile.medications.map((medication) => <tr key={`${medication.name}-${medication.route}`}>
-            <td><strong>{medication.name}</strong><SourceDetails facts={[medication]} /></td>
-            <td>{[medication.route, ...medication.schedules].filter(Boolean).join(' · ') || 'Not recorded'}</td>
-            <td>{medication.statuses.length ? medication.statuses.map((status) => <StatusPill key={status}>{status}</StatusPill>) : 'Not recorded'}</td>
-            <td>{`Start: ${medication.starts.join(', ') || 'not recorded'} · Stop: ${medication.stops.join(', ') || 'not recorded'}`}</td>
+      <Card title="Medication history" eyebrow="Grouped by medication and route">
+        {visibleMedications.length ? <div className="table-wrap"><table className="clinical-table">
+          <thead><tr><th>Medication</th><th>Recorded status</th><th>Schedule / course</th><th>Episodes</th></tr></thead>
+          <tbody>{visibleMedications.map((medication) => <tr key={`${medication.name}-${medication.route}`}>
+            <td><strong>{medication.name}</strong>{medication.route && <small>{medication.route}</small>}</td>
+            <td>{medication.statuses.join(', ') || 'Not recorded'}</td>
+            <td>{[...medication.schedules, medication.starts.length ? `Start ${medication.starts.join(', ')}` : '', medication.stops.length ? `Stop ${medication.stops.join(', ')}` : ''].filter(Boolean).join(' · ') || 'No schedule or dates recorded'}</td>
             <td><div className="episode-chip-list">{medication.episodes.map((episode) => <button type="button" className="text-link" key={episode.id} onClick={() => onEpisode(episode.id)}>{episode.date || episode.id}</button>)}</div></td>
           </tr>)}</tbody>
         </table></div> : <Empty />}
-        <p className="card-footnote">Medication records are consolidated by recorded name and route; this does not establish current use.</p>
-      </Card>
-      <Card title="Vital-sign trends" eyebrow="Recorded measurements" className="span-two">
-        <TrendCards readings={profile.vitalReadings} />
-      </Card>
-      <Card title="Episode timeline" eyebrow="Select an encounter">
-        {episodePatients.length ? <div className="timeline-list">{records.map((record) => {
-          const patient = record.patient;
-          const snapshot = episodeSnapshot(patient);
-          return <button type="button" className="timeline-card" key={patient.episodeId} onClick={() => onEpisode(patient.episodeId)}>
-            <span className="timeline-point" />
-            <span className="timeline-date">{shortDate(patient.episode?.startDate || patient.demographics?.admitDate)}</span>
-            <strong>{episodeLabel(patient.episode)}</strong>
-            <span>{snapshot.diagnoses.slice(0, 2).join(' · ') || 'No diagnosis recorded'}</span>
-            <small>{snapshot.noteCount} notes · {snapshot.medicationCount} medication records</small>
-          </button>;
-        })}</div> : <Empty />}
+        {medications.length > visibleMedications.length && <details className="more-records"><summary>Show {medications.length - visibleMedications.length} more medication records</summary><div className="table-wrap"><table className="clinical-table"><thead><tr><th>Medication</th><th>Status</th><th>Schedule / course</th><th>Episodes</th></tr></thead><tbody>{medications.slice(visibleMedications.length).map((medication) => <tr key={`${medication.name}-${medication.route}`}><td><strong>{medication.name}</strong>{medication.route && <small>{medication.route}</small>}</td><td>{medication.statuses.join(', ') || 'Not recorded'}</td><td>{[...medication.schedules, ...medication.starts, ...medication.stops].filter(Boolean).join(' · ') || 'Not recorded'}</td><td>{medication.episodes.map((episode) => episode.date || episode.id).join('; ')}</td></tr>)}</tbody></table></div></details>}
+        <p className="card-footnote">Historical medication records do not establish current use.</p>
       </Card>
       {failedRecords.length > 0 && <Card title="Episodes not loaded" eyebrow="Data availability" className="span-two">
         {failedRecords.map((record) => <div className="load-failure" key={record.episode.id}><strong>{episodeLabel(record.episode)}</strong><span>{record.error}</span></div>)}
@@ -171,7 +229,6 @@ function DiagnosisCard({ patient }) {
   return <Card title="Diagnoses" eyebrow="Episode record">
     {diagnoses.length ? <div className="fact-list">{diagnoses.map((diagnosis, index) => <article className="fact-row" key={`${diagnosis.diagnosis}-${index}`}>
       <div><strong>{diagnosis.diagnosis}</strong>{diagnosis.isPrimary && <StatusPill tone="blue">Primary</StatusPill>}<span>{diagnosis.type || ''} {diagnosis.dateEntered ? `· ${diagnosis.dateEntered}` : ''}</span></div>
-      <SourceDetails facts={[diagnosis]} />
     </article>)}</div> : <Empty />}
   </Card>;
 }
@@ -183,8 +240,6 @@ function EpisodeMedicationCard({ patient }) {
       <div className="fact-row-top"><strong>{medication.medication}</strong><StatusPill tone={String(medication.status).toLowerCase() === 'active' ? 'green' : 'neutral'}>{medication.status}</StatusPill></div>
       <span>{[medication.schedule, medication.scheduleType, medication.route].filter(Boolean).join(' · ') || 'Schedule / route not recorded'}</span>
       <small>{medication.startDate || 'Start not recorded'} → {medication.stopDate || 'Stop date not recorded'}</small>
-      {medication.needsVerification && <div className="provisional-tag">Note-sourced · verify against the medication order</div>}
-      <SourceDetails facts={[medication]} />
     </article>)}</div> : <Empty />}
   </Card>;
 }
@@ -195,22 +250,19 @@ function OrderCard({ title, eyebrow, items, labelKey, dateKey }) {
       <div className="fact-row-top"><strong>{item[labelKey]}</strong><StatusPill>{item.status}</StatusPill></div>
       <span>{[item.section, item.imagingType].filter(Boolean).join(' · ') || 'Order record'}</span>
       {item[dateKey] && <small>{item[dateKey]}</small>}
-      <SourceDetails facts={[item]} />
     </article>)}</div> : <Empty />}
     <p className="card-footnote">Order records only. Result values and interpretation may not be available.</p>
   </Card>;
 }
 
 function NotesCard({ notes }) {
-  return <Card title="Clinical notes" eyebrow="Source context" className="span-two">
+  return <details className="note-index span-two">
+    <summary>Clinical notes · {notes?.length || 0} available</summary>
     {notes?.length ? <div className="note-timeline">{notes.map((note, index) => <details className="note-entry" key={`${note.noteIen}-${index}`}>
-      <summary><span className="note-dot" /><span className="note-title"><strong>{note.title || 'Clinical note'}</strong><small>{note.author || 'Author not recorded'} · {note.dateOfEntry || 'Date not recorded'}</small></span><StatusPill>{note.status}</StatusPill></summary>
-      <div className="note-body">
-        {note.content?.length ? <div className="note-content">{note.content.map((line, lineIndex) => <p key={lineIndex}>{line}</p>)}</div> : <Empty>No narrative content was returned for this note.</Empty>}
-        <SourceDetails facts={[note]} />
-      </div>
-    </details>)}</div> : <Empty />}
-  </Card>;
+      <summary><span className="note-title"><strong>{note.title || 'Clinical note'}</strong><small>{note.author || 'Author not recorded'} · {note.dateOfEntry || 'Date not recorded'} · {note.status || 'Status not recorded'}</small></span></summary>
+      <div className="note-body">{note.content?.length ? <div className="note-content">{note.content.map((line, lineIndex) => <p key={lineIndex}>{line}</p>)}</div> : <p className="empty-state">No narrative content was returned for this note.</p>}</div>
+    </details>)}</div> : <p className="empty-state">No notes were returned for this episode.</p>}
+  </details>;
 }
 
 function ProblemCard({ patient }) {
@@ -219,7 +271,6 @@ function ProblemCard({ patient }) {
     {problems.length ? <div className="fact-list">{problems.map((problem, index) => <article className="fact-row" key={`${problem.problem}-${index}`}>
       <div className="fact-row-top"><strong>{problem.problem}</strong><StatusPill tone={String(problem.status).toLowerCase() === 'active' ? 'green' : 'neutral'}>{problem.status}</StatusPill></div>
       {problem.dateOnset && <small>Onset recorded: {problem.dateOnset}</small>}
-      <SourceDetails facts={[problem]} />
     </article>)}</div> : <Empty />}
   </Card>;
 }
@@ -231,26 +282,25 @@ function EpisodeView({ record }) {
   return <div className="view-stack">
     <div className="view-title-row episode-title-row">
       <div><div className="eyebrow">Inpatient episode · {patient.episodeId || patient.episode?.id || 'ID not recorded'}</div><h1>{episodeLabel(patient.episode)}</h1><p>{patient.episode?.label || shortDate(patient.episode?.startDate)}{patient.episode?.dateTo ? ` · through ${patient.episode.dateTo}` : ''}</p></div>
-      <StatusPill tone="blue">Episode summary</StatusPill>
+      <span className="episode-reference">Episode {patient.episodeId || patient.episode?.id || 'ID not recorded'}</span>
     </div>
-    <div className="episode-stat-strip">
-      <div><strong>{snapshot.diagnosisCount}</strong><span>Diagnoses</span></div>
-      <div><strong>{snapshot.noteCount}</strong><span>Notes</span></div>
-      <div><strong>{snapshot.medicationCount}</strong><span>Medication records</span></div>
-      <div><strong>{snapshot.labOrderCount + snapshot.radiologyOrderCount}</strong><span>Test / imaging orders</span></div>
+    <div className="episode-brief">
+      <strong>Episode summary</strong>
+      <p>{episodeSummary(patient)}</p>
+      <div className="episode-brief-meta"><span>Admission: {patient.demographics?.admitDate || patient.episode?.startDate || 'Not recorded'}</span><span>Ward: {patient.demographics?.ward || 'Not recorded'}</span><span>Primary physician: {patient.demographics?.primaryPhysician || 'Not recorded'}</span></div>
     </div>
-    <div className="overview-grid">
+    <Card title="Vital-sign trends" eyebrow="Recorded measurements"><TrendCards readings={vitals} /></Card>
+    <div className="overview-grid episode-record-grid">
       <DiagnosisCard patient={patient} />
       <ProblemCard patient={patient} />
-      <Card title="Presenting complaints" eyebrow="Episode context">
-        {snapshot.complaints.length ? <ul className="clean-list">{(patient.complaints || []).map((complaint, index) => <li key={`${complaint.name}-${index}`}><strong>{complaint.name}</strong>{complaint.type && <span>{complaint.type}</span>}{complaint.remark && <p>{complaint.remark}</p>}{complaint.date && <small>{complaint.date}</small>}<SourceDetails facts={[complaint]} /></li>)}</ul> : <Empty />}
+      <Card title="Presenting complaints" eyebrow="Episode record">
+        {snapshot.complaints.length ? <ul className="clean-list">{(patient.complaints || []).map((complaint, index) => <li key={`${complaint.name}-${index}`}><strong>{complaint.name}</strong>{complaint.type && <span>{complaint.type}</span>}{complaint.remark && <p>{complaint.remark}</p>}{complaint.date && <small>{complaint.date}</small>}</li>)}</ul> : <Empty />}
       </Card>
-      <Card title="Vital-sign trends" eyebrow="Recorded measurements" className="span-two"><TrendCards readings={vitals} /></Card>
       <EpisodeMedicationCard patient={patient} />
       <OrderCard title="Laboratory orders" eyebrow="Orders · not results" items={patient.labOrders} labelKey="name" dateKey="orderDateTime" />
       <OrderCard title="Radiology orders" eyebrow="Orders · not interpretations" items={patient.radOrders} labelKey="procedure" dateKey="dateTime" />
-      <NotesCard notes={patient.notes} />
     </div>
+    <NotesCard notes={patient.notes} />
   </div>;
 }
 
@@ -331,17 +381,21 @@ export default function App() {
   }
 
   const navigationEpisodes = shell?.episodes || [];
-  const noteSourcedCount = successfulRecords.reduce((count, record) => count + (record.patient.notes || []).filter((note) => note.needsVerification).length, 0);
+  const provisionalMedicationCount = successfulRecords.reduce((count, record) => (
+    count + (record.patient.medications || []).filter((medication) => medication.needsVerification).length
+  ), 0);
 
   return <div className="app-shell">
-    <header className="topbar">
-      <a className="brand-mark" href="#top" aria-label="Patient Episode Profile home"><span className="brand-cross">+</span><span>Clinical overview</span></a>
-      <div className="topbar-right"><span className="read-only-marker"><span /> READ ONLY</span><span className="topbar-product">PATIENT EPISODE PROFILE</span></div>
+    <header className="app-header">
+      <span className="app-title">IPD · PATIENT EPISODE PROFILE</span>
+      <span className="app-sub">LONGITUDINAL CLINICAL VIEW · READ ONLY</span>
     </header>
 
     <main className="page-frame" id="top">
-      <section className="welcome-row">
-        <div><div className="eyebrow">Longitudinal care workspace</div><h1>See the whole patient story.</h1><p>One clear view of the patient's recorded history across inpatient episodes.</p></div>
+      <section className={`welcome-row ${shell ? 'welcome-row-loaded' : ''}`}>
+        <div>{shell
+          ? <><div className="eyebrow">Patient record</div><div className="loaded-search-copy">Open a different patient</div></>
+          : <><div className="eyebrow">Read-only clinical workspace</div><h1>Patient episode profile</h1><p>Review the recorded patient history across inpatient episodes.</p></>}</div>
         <form className="patient-search" onSubmit={loadPatient}>
           <label htmlFor="patient-id">Patient ID / DFN</label>
           <div><input id="patient-id" value={dfnInput} onChange={(event) => setDfnInput(event.target.value)} placeholder="Enter patient identifier" autoComplete="off" /><button type="submit" disabled={loading || !dfnInput.trim()}>{loading ? 'Loading…' : 'Open profile'}</button></div>
@@ -354,12 +408,12 @@ export default function App() {
 
       {shell && <>
         <PatientHeading patient={shell} dfn={loadedDfn} />
-        <ClinicalReviewNotice failedCount={failedRecords.length} />
+        <ClinicalReviewNotice failedCount={failedRecords.length} provisionalMedicationCount={provisionalMedicationCount} />
         <div className="profile-layout">
           <aside className="episode-sidebar" aria-label="Patient episode navigation">
             <div className="sidebar-heading"><div className="eyebrow">Patient record</div><strong>Navigate history</strong></div>
             <button type="button" className={`nav-item nav-overview ${selectedEpisode === OVERVIEW ? 'nav-selected' : ''}`} onClick={() => setSelectedEpisode(OVERVIEW)}>
-              <span className="nav-icon">◫</span><span><strong>Patient overview</strong><small>Across all episodes</small></span>
+              <span><strong>Patient overview</strong><small>Across all episodes</small></span>
             </button>
             <div className="episode-nav-heading"><span>Inpatient episodes</span><span>{navigationEpisodes.length}</span></div>
             <div className="episode-nav-list">{navigationEpisodes.map((episode) => {
@@ -368,24 +422,23 @@ export default function App() {
               const failure = failedRecords.find((item) => item.episode.id === episode.id);
               return <button type="button" className={`nav-item episode-nav-item ${selectedEpisode === episode.id ? 'nav-selected' : ''}`} key={episode.id} onClick={() => setSelectedEpisode(episode.id)}>
                 <span className="nav-timeline-mark" />
-                <span><strong>{shortDate(episode.startDate) || episode.id}</strong><small>{episodeLabel(episode)}</small>{snapshot && <small>{snapshot.diagnoses[0] || 'Episode summary'}</small>}{failure && <small className="nav-error">Could not load</small>}</span>
+                <span><strong>{episode.startDate ? shortDate(episode.startDate) : episode.id}</strong><small>{episodeLabel(episode)}</small>{snapshot && <small>{snapshot.diagnoses[0] || 'Episode summary'}</small>}{failure && <small className="nav-error">Could not load</small>}</span>
               </button>;
             })}</div>
-            <div className="sidebar-footer"><span className="sidebar-lock">▣</span> Data is viewed, not edited</div>
+            <div className="sidebar-footer">Read only · Data remains in Sansys</div>
           </aside>
           <section className="profile-content" aria-live="polite">
             {selectedEpisode === OVERVIEW ? <PatientOverview shell={shell} records={successfulRecords} profile={profile} failedRecords={failedRecords} onEpisode={setSelectedEpisode} />
               : selectedRecord ? <EpisodeView record={selectedRecord} />
                 : selectedFailure ? <div className="error-banner episode-failure-view"><strong>Episode unavailable</strong><span>{selectedFailure.error}</span></div>
                 : <div className="episode-pending"><span className="loading-spinner" /><strong>Loading episode summary…</strong><span>Episode records may take a short time to retrieve.</span></div>}
-            {noteSourcedCount > 0 && <p className="provenance-footer">{noteSourcedCount} note{noteSourcedCount === 1 ? '' : 's'} include note-sourced clinical content. Open source records and verify against the original chart.</p>}
+            <ProvenanceAppendix records={successfulRecords} />
           </section>
         </div>
       </>}
 
       {!shell && !loading && !error && <section className="welcome-card">
-        <div className="welcome-illustration" aria-hidden="true"><span className="illustration-ring" /><span className="illustration-cross">+</span><span className="illustration-line line-one" /><span className="illustration-line line-two" /></div>
-        <div><div className="eyebrow">A clearer handover starts here</div><h2>Bring every episode into view.</h2><p>Open a patient record to explore the episode timeline, clinical notes, medication history, diagnoses, and recorded vital trends together.</p><ul><li>Choose an episode from the side navigation</li><li>Review longitudinal history on the patient overview</li><li>Open source records when you need the detail</li></ul></div>
+        <div><div className="eyebrow">Patient lookup</div><h2>Open a patient record</h2><p>Enter a patient identifier above to view a concise longitudinal summary, select an inpatient episode, and review recorded trends.</p></div>
       </section>}
       <footer className="app-footer"><span>Patient Episode Profile</span><span>Read-only clinical reference · Source data remains in Sansys</span></footer>
     </main>

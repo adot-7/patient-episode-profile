@@ -1,40 +1,51 @@
 # Patient Episode Profile
 
-A separate, read-only application for reviewing a patient's longitudinal profile across Sansys inpatient episodes. It presents episode summaries, source-linked notes and records, medication/condition history, and vital-sign trends. It does not generate, edit, approve, or write back a clinical summary.
+A read-only, episode-by-episode patient overview for clinicians. The overview puts a short factual synthesis, episode timeline, medication history, allergies, and vital trends first. Episode records and source provenance remain available below the summary. The app does not generate, edit, approve, or write back clinical data.
 
 ## Prerequisites
 
 - Node.js 20 or later
-- The Sansys discharge-summary API running at `http://localhost:3001` (or configure `SANSYS_BACKEND_URL`)
+- Network access to the Sansys read API (defaults to `http://182.70.249.137:5050`)
 
-The API must include the opt-in `includeNoteDetails=true` support from the Sansys project. Default patient requests continue to defer note details.
+This application talks directly to Sansys through its own server adapter. It does not require the discharge-summary application to be running.
 
 ## Run locally
 
 ```sh
 npm install
-npm test
 npm run dev
 ```
 
-Vite proxies `/api` to `SANSYS_BACKEND_URL` (defaults to `http://localhost:3001`). The application opens at the Vite URL, typically `http://localhost:5173`.
+Copy `.env.example` to `.env` first if the Sansys endpoint, URL base path, or local port differs from the defaults. The single development command starts both the profile API and Vite; open the Vite URL, typically `http://localhost:5173`.
+
+Run checks with:
+
+```sh
+npm test
+```
+
+`GET /api/health` checks the local server; `GET /api/health/sansys` checks the configured Sansys service without returning patient details.
 
 ## Production
 
 ```sh
 npm run build
-PORT=3002 SANSYS_BACKEND_URL=http://localhost:3001 npm start
+npm start
 ```
 
-The included Express server serves the production UI and forwards read-only `GET`/`HEAD` `/api` requests to the configured Sansys service. It rejects API writes. The profile keeps data in browser memory only and does not persist patient information.
+The included Express server serves the production UI and reads Sansys directly. Set `PORT`, `APP_BASE_PATH`, `SANSYS_BASE_URL`, and `SANSYS_TIMEOUT_MS` in `.env` as needed. The profile keeps data in browser memory and a short-lived in-process cache only; it does not persist patient information or call write endpoints.
+
+## Deploy
+
+Container deployment files are included. See [DEPLOYMENT.md](./DEPLOYMENT.md) for Docker Compose, same-host URL-prefix mounting, and Oracle/Nginx instructions.
 
 ## Clinical presentation
 
 - Use the side navigation to open the patient overview or any recorded inpatient episode.
-- The overview consolidates exact recorded diagnoses/problems, medication records and status/course dates, and longitudinal vital trends.
-- Episode pages show the recorded diagnosis, complaints, notes, medication orders, lab/radiology orders, and vitals.
+- The first screen prioritizes the longitudinal summary, allergy record, episode timeline, vital trends, and grouped medication courses.
+- Episode pages put a concise episode brief and vitals before diagnoses, problems, medication records, and investigation orders.
 - Lab and radiology entries are labelled as orders; this feed does not provide result interpretation.
-- Each note and structured record can expose its source provenance.
-- A persistent clinical-review notice explains that the profile is a navigation aid and does not replace the source chart or clinician verification.
+- Long clinical-note text is tucked into a collapsed note index; provenance is in a separate collapsed appendix at the end.
+- A clinical-review notice explains that this record summary does not replace source-chart verification.
 
-The local profile repository is intentionally independent. Its API bridge consumes the existing Sansys service; deploy both behind the same authenticated clinical environment and route `/api` through the bridge.
+The application has its own read-only Sansys adapter and does not require the discharge-summary server.
