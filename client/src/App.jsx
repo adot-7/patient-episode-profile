@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchEpisode, fetchPatientShell } from './api.js';
-import { buildPatientProfile, episodeSnapshot, episodeSummary, longitudinalSummary, shortDate } from './profileData.js';
+import { buildPatientProfile, episodeReport, episodeSnapshot, longitudinalSummary, shortDate } from './profileData.js';
 import VitalsChart from './VitalsChart.jsx';
 
 const OVERVIEW = '__overview__';
@@ -125,12 +125,22 @@ function TrendCards({ readings }) {
   return <div className="vitals-grid">{present.map((metric) => <VitalsChart key={metric} readings={readings} metric={metric} />)}</div>;
 }
 
+function EpisodeReport({ patient }) {
+  const sections = episodeReport(patient);
+  return <section className="episode-report">
+    <header className="episode-report-header"><h2>Episode summary</h2><span>{patient.episode?.startDate ? shortDate(patient.episode.startDate) : patient.episodeId}</span></header>
+    <div className="episode-report-grid">{sections.map((section) => <section className={`report-section report-${section.key}`} key={section.title}>
+      <h3>{section.title}</h3>
+      {section.lines.length === 1 ? <p>{section.lines[0]}</p> : <ul>{section.lines.map((line, index) => <li key={`${section.title}-${index}`}>{line}</li>)}</ul>}
+    </section>)}</div>
+  </section>;
+}
+
 function PatientHeading({ patient, dfn }) {
   const demographics = patient?.demographics || {};
   return <div className="patient-heading">
-    <div className="avatar-mark" aria-hidden="true">{displayName(patient).split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]).join('').toUpperCase()}</div>
     <div className="patient-heading-main">
-      <div className="patient-name-row"><h1>{displayName(patient)}</h1><StatusPill tone="green">Read only</StatusPill></div>
+      <div className="patient-name-row"><h1>{displayName(patient)}</h1></div>
       <div className="patient-demographics">
         <span><b>Patient ID</b> {demographics.uhid || dfn || '—'}</span>
         <span><b>Age / sex</b> {[demographics.age, demographics.sex].filter(Boolean).join(' / ') || '—'}</span>
@@ -140,16 +150,6 @@ function PatientHeading({ patient, dfn }) {
       </div>
     </div>
   </div>;
-}
-
-function ClinicalReviewNotice({ failedCount, provisionalMedicationCount }) {
-  return <aside className="review-notice" aria-label="Clinical review notice">
-    <span className="notice-symbol" aria-hidden="true">!</span>
-    <div>
-      <strong>Use this summary to orient—not replace—review of the original chart.</strong>
-      <p>Confirm diagnoses, medication status, and recorded trends before decisions. Test entries are orders; results may not be present. {provisionalMedicationCount > 0 && `${provisionalMedicationCount} medication record${provisionalMedicationCount === 1 ? ' is' : 's are'} documented in notes without a matching order; verify before prescribing. `}{failedCount > 0 && `${failedCount} episode${failedCount === 1 ? '' : 's'} could not be loaded; details are listed below. `}Source details are at the end of this profile.</p>
-    </div>
-  </aside>;
 }
 
 function PatientOverview({ shell, records, profile, failedRecords, onEpisode }) {
@@ -177,7 +177,6 @@ function PatientOverview({ shell, records, profile, failedRecords, onEpisode }) 
         {allergies.length
           ? <ul>{allergies.map((allergy, index) => <li key={`${allergy.allergy}-${index}`}><strong>{allergy.allergy}</strong>{allergy.reaction && ` · ${allergy.reaction}`}{allergy.symptoms && ` · ${allergy.symptoms}`}</li>)}</ul>
           : <p>{shell?.allergies?.status || 'No allergy items returned.'}</p>}
-        <small>Confirm in the active chart before prescribing.</small>
       </section>
     </div>
     <Card title="Episode timeline" eyebrow="Select an episode to open its summary" className="span-two timeline-summary-card">
@@ -196,7 +195,9 @@ function PatientOverview({ shell, records, profile, failedRecords, onEpisode }) 
     <Card title="Vital-sign trends" eyebrow="Measurements across loaded episodes" className="span-two">
       <TrendCards readings={profile.vitalReadings} />
     </Card>
-    <div className="overview-grid">
+    <details className="overview-details">
+      <summary>Expanded patient history · diagnoses, problems, and medication courses</summary>
+      <div className="overview-grid">
       <Card title="Conditions recorded" eyebrow="Diagnoses and problem list">
         {visibleConditions.length ? <div className="condition-list">{visibleConditions.map((condition) => <article className="condition-row" key={`${condition.kind}-${condition.label}`}>
           <div className="condition-main"><strong>{condition.label}</strong><div className="condition-meta"><span>{condition.kind}</span>{condition.primary && <StatusPill tone="blue">Primary</StatusPill>}{condition.statuses.map((status) => <StatusPill key={status}>{status}</StatusPill>)}</div></div>
@@ -215,12 +216,12 @@ function PatientOverview({ shell, records, profile, failedRecords, onEpisode }) 
           </tr>)}</tbody>
         </table></div> : <Empty />}
         {medications.length > visibleMedications.length && <details className="more-records"><summary>Show {medications.length - visibleMedications.length} more medication records</summary><div className="table-wrap"><table className="clinical-table"><thead><tr><th>Medication</th><th>Status</th><th>Schedule / course</th><th>Episodes</th></tr></thead><tbody>{medications.slice(visibleMedications.length).map((medication) => <tr key={`${medication.name}-${medication.route}`}><td><strong>{medication.name}</strong>{medication.route && <small>{medication.route}</small>}</td><td>{medication.statuses.join(', ') || 'Not recorded'}</td><td>{[...medication.schedules, ...medication.starts, ...medication.stops].filter(Boolean).join(' · ') || 'Not recorded'}</td><td>{medication.episodes.map((episode) => episode.date || episode.id).join('; ')}</td></tr>)}</tbody></table></div></details>}
-        <p className="card-footnote">Historical medication records do not establish current use.</p>
       </Card>
       {failedRecords.length > 0 && <Card title="Episodes not loaded" eyebrow="Data availability" className="span-two">
         {failedRecords.map((record) => <div className="load-failure" key={record.episode.id}><strong>{episodeLabel(record.episode)}</strong><span>{record.error}</span></div>)}
       </Card>}
-    </div>
+      </div>
+    </details>
   </div>;
 }
 
@@ -235,7 +236,7 @@ function DiagnosisCard({ patient }) {
 
 function EpisodeMedicationCard({ patient }) {
   const medications = patient.medications || [];
-  return <Card title="Medication records" eyebrow="Orders recorded for episode">
+  return <Card title="Medication records">
     {medications.length ? <div className="fact-list">{medications.map((medication, index) => <article className="fact-row" key={`${medication.medication}-${index}`}>
       <div className="fact-row-top"><strong>{medication.medication}</strong><StatusPill tone={String(medication.status).toLowerCase() === 'active' ? 'green' : 'neutral'}>{medication.status}</StatusPill></div>
       <span>{[medication.schedule, medication.scheduleType, medication.route].filter(Boolean).join(' · ') || 'Schedule / route not recorded'}</span>
@@ -244,14 +245,13 @@ function EpisodeMedicationCard({ patient }) {
   </Card>;
 }
 
-function OrderCard({ title, eyebrow, items, labelKey, dateKey }) {
-  return <Card title={title} eyebrow={eyebrow}>
+function OrderCard({ title, items, labelKey, dateKey }) {
+  return <Card title={title}>
     {items?.length ? <div className="fact-list">{items.map((item, index) => <article className="fact-row" key={`${item[labelKey]}-${index}`}>
       <div className="fact-row-top"><strong>{item[labelKey]}</strong><StatusPill>{item.status}</StatusPill></div>
       <span>{[item.section, item.imagingType].filter(Boolean).join(' · ') || 'Order record'}</span>
       {item[dateKey] && <small>{item[dateKey]}</small>}
     </article>)}</div> : <Empty />}
-    <p className="card-footnote">Order records only. Result values and interpretation may not be available.</p>
   </Card>;
 }
 
@@ -284,28 +284,27 @@ function EpisodeView({ record }) {
       <div><div className="eyebrow">Inpatient episode · {patient.episodeId || patient.episode?.id || 'ID not recorded'}</div><h1>{episodeLabel(patient.episode)}</h1><p>{patient.episode?.label || shortDate(patient.episode?.startDate)}{patient.episode?.dateTo ? ` · through ${patient.episode.dateTo}` : ''}</p></div>
       <span className="episode-reference">Episode {patient.episodeId || patient.episode?.id || 'ID not recorded'}</span>
     </div>
-    <div className="episode-brief">
-      <strong>Episode summary</strong>
-      <p>{episodeSummary(patient)}</p>
-      <div className="episode-brief-meta"><span>Admission: {patient.demographics?.admitDate || patient.episode?.startDate || 'Not recorded'}</span><span>Ward: {patient.demographics?.ward || 'Not recorded'}</span><span>Primary physician: {patient.demographics?.primaryPhysician || 'Not recorded'}</span></div>
-    </div>
+    <EpisodeReport patient={patient} />
     <Card title="Vital-sign trends" eyebrow="Recorded measurements"><TrendCards readings={vitals} /></Card>
-    <div className="overview-grid episode-record-grid">
-      <DiagnosisCard patient={patient} />
-      <ProblemCard patient={patient} />
-      <Card title="Presenting complaints" eyebrow="Episode record">
-        {snapshot.complaints.length ? <ul className="clean-list">{(patient.complaints || []).map((complaint, index) => <li key={`${complaint.name}-${index}`}><strong>{complaint.name}</strong>{complaint.type && <span>{complaint.type}</span>}{complaint.remark && <p>{complaint.remark}</p>}{complaint.date && <small>{complaint.date}</small>}</li>)}</ul> : <Empty />}
-      </Card>
-      <EpisodeMedicationCard patient={patient} />
-      <OrderCard title="Laboratory orders" eyebrow="Orders · not results" items={patient.labOrders} labelKey="name" dateKey="orderDateTime" />
-      <OrderCard title="Radiology orders" eyebrow="Orders · not interpretations" items={patient.radOrders} labelKey="procedure" dateKey="dateTime" />
-    </div>
-    <NotesCard notes={patient.notes} />
+    <details className="episode-details">
+      <summary>Detailed episode records · {snapshot.diagnosisCount} diagnoses · {snapshot.medicationCount} medication entries · {snapshot.noteCount} notes</summary>
+      <div className="overview-grid episode-record-grid">
+        <DiagnosisCard patient={patient} />
+        <ProblemCard patient={patient} />
+        <Card title="Presenting complaints" eyebrow="Episode record">
+          {snapshot.complaints.length ? <ul className="clean-list">{(patient.complaints || []).map((complaint, index) => <li key={`${complaint.name}-${index}`}><strong>{complaint.name}</strong>{complaint.type && <span>{complaint.type}</span>}{complaint.remark && <p>{complaint.remark}</p>}{complaint.date && <small>{complaint.date}</small>}</li>)}</ul> : <Empty />}
+        </Card>
+        <EpisodeMedicationCard patient={patient} />
+      <OrderCard title="Laboratory orders" items={patient.labOrders} labelKey="name" dateKey="orderDateTime" />
+      <OrderCard title="Radiology orders" items={patient.radOrders} labelKey="procedure" dateKey="dateTime" />
+      </div>
+      <NotesCard notes={patient.notes} />
+    </details>
   </div>;
 }
 
 export default function App() {
-  const [dfnInput, setDfnInput] = useState('');
+  const [dfnInput, setDfnInput] = useState('PAT123456');
   const [loadedDfn, setLoadedDfn] = useState('');
   const [shell, setShell] = useState(null);
   const [records, setRecords] = useState([]);
@@ -381,25 +380,21 @@ export default function App() {
   }
 
   const navigationEpisodes = shell?.episodes || [];
-  const provisionalMedicationCount = successfulRecords.reduce((count, record) => (
-    count + (record.patient.medications || []).filter((medication) => medication.needsVerification).length
-  ), 0);
 
   return <div className="app-shell">
     <header className="app-header">
       <span className="app-title">IPD · PATIENT EPISODE PROFILE</span>
-      <span className="app-sub">LONGITUDINAL CLINICAL VIEW · READ ONLY</span>
+      <span className="app-sub">EPISODE SUMMARIES</span>
     </header>
 
     <main className="page-frame" id="top">
       <section className={`welcome-row ${shell ? 'welcome-row-loaded' : ''}`}>
         <div>{shell
           ? <><div className="eyebrow">Patient record</div><div className="loaded-search-copy">Open a different patient</div></>
-          : <><div className="eyebrow">Read-only clinical workspace</div><h1>Patient episode profile</h1><p>Review the recorded patient history across inpatient episodes.</p></>}</div>
+          : <><div className="eyebrow">Patient overview</div><h1>Patient episode profile</h1><p>Episode summaries and recorded clinical trends.</p></>}</div>
         <form className="patient-search" onSubmit={loadPatient}>
           <label htmlFor="patient-id">Patient ID / DFN</label>
           <div><input id="patient-id" value={dfnInput} onChange={(event) => setDfnInput(event.target.value)} placeholder="Enter patient identifier" autoComplete="off" /><button type="submit" disabled={loading || !dfnInput.trim()}>{loading ? 'Loading…' : 'Open profile'}</button></div>
-          <small>Read-only · no changes are written to the source chart</small>
         </form>
       </section>
 
@@ -408,7 +403,6 @@ export default function App() {
 
       {shell && <>
         <PatientHeading patient={shell} dfn={loadedDfn} />
-        <ClinicalReviewNotice failedCount={failedRecords.length} provisionalMedicationCount={provisionalMedicationCount} />
         <div className="profile-layout">
           <aside className="episode-sidebar" aria-label="Patient episode navigation">
             <div className="sidebar-heading"><div className="eyebrow">Patient record</div><strong>Navigate history</strong></div>
@@ -425,7 +419,6 @@ export default function App() {
                 <span><strong>{episode.startDate ? shortDate(episode.startDate) : episode.id}</strong><small>{episodeLabel(episode)}</small>{snapshot && <small>{snapshot.diagnoses[0] || 'Episode summary'}</small>}{failure && <small className="nav-error">Could not load</small>}</span>
               </button>;
             })}</div>
-            <div className="sidebar-footer">Read only · Data remains in Sansys</div>
           </aside>
           <section className="profile-content" aria-live="polite">
             {selectedEpisode === OVERVIEW ? <PatientOverview shell={shell} records={successfulRecords} profile={profile} failedRecords={failedRecords} onEpisode={setSelectedEpisode} />
@@ -438,9 +431,8 @@ export default function App() {
       </>}
 
       {!shell && !loading && !error && <section className="welcome-card">
-        <div><div className="eyebrow">Patient lookup</div><h2>Open a patient record</h2><p>Enter a patient identifier above to view a concise longitudinal summary, select an inpatient episode, and review recorded trends.</p></div>
+        <div><div className="eyebrow">Patient lookup</div><h2>Open the patient profile</h2><p>Patient ID PAT123456 is ready. Select Open profile to review episode summaries and recorded trends.</p></div>
       </section>}
-      <footer className="app-footer"><span>Patient Episode Profile</span><span>Read-only clinical reference · Source data remains in Sansys</span></footer>
     </main>
   </div>;
 }

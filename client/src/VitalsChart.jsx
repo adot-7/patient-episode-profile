@@ -55,6 +55,5 @@ export default function VitalsChart({ readings, metric }) {
         )}
       </g>)}
     </svg>
-    <div className="chart-footnote">Recorded values only; units are shown when supplied. Interpret in clinical context.</div>
   </figure>;
 }

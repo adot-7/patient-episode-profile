@@ -52,7 +52,6 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
 .patient-search small { grid-column: 2 / -1; margin-top: -3px; color: var(--faint); font-size: 9px; }
 
 .patient-heading { display: grid; grid-template-columns: 1fr; gap: 0; margin: 0; padding: 0; border-bottom: 1px solid var(--border); background: #fff; }
-.avatar-mark { display: none; }
 .patient-heading-main { min-width: 0; padding: 7px 10px 8px; }
 .patient-name-row { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
 .patient-name-row h1 { margin: 0; color: #111; font-size: 16px; font-weight: 700; line-height: 1.25; }
@@ -61,11 +60,6 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
 .pill { display: inline-flex; align-items: center; width: fit-content; min-height: 19px; padding: 1px 5px; border: 1px solid var(--border-dark); color: #333; background: #f7f7f7; font-size: 10px; font-weight: 600; line-height: 1.2; white-space: nowrap; }
 .pill-green { border-color: #8aa78f; color: #244d2d; background: var(--ok-bg); }
 .pill-blue { border-color: #9aafc0; color: #244b68; background: var(--accent-bg); }
-
-.review-notice { display: flex; align-items: flex-start; gap: 7px; margin: 6px 10px; padding: 5px 7px; border: 1px solid var(--border); color: #333; background: #f8f8f8; }
-.notice-symbol { width: 15px; height: 15px; flex: none; display: grid; place-items: center; border: 1px solid var(--border-dark); color: #333; background: var(--header); font-size: 10px; font-weight: 700; }
-.review-notice strong { display: inline; margin-right: 4px; color: #222; font-size: 10px; }
-.review-notice p { display: inline; margin: 0; color: #444; font-size: 10px; line-height: 1.4; }
 
 .profile-layout { display: grid; grid-template-columns: 254px minmax(0, 1fr); align-items: stretch; gap: 0; min-height: 570px; border-top: 1px solid var(--border); }
 .episode-sidebar { position: sticky; top: 0; align-self: start; max-height: calc(100vh - 50px); overflow: auto; border-right: 1px solid var(--border-dark); background: #fff; }
@@ -89,9 +83,6 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
 .episode-nav-item.nav-selected .nav-timeline-mark::before { border-color: var(--accent); background: var(--accent-bg); }
 .episode-nav-item:last-child .nav-timeline-mark::after { display: none; }
 .nav-error { color: var(--danger) !important; }
-.sidebar-footer { padding: 6px 9px; border-top: 1px solid var(--border); color: var(--muted); background: var(--header); font-size: 9px; }
-.sidebar-lock { margin-right: 4px; color: var(--accent); }
-
 .profile-content { min-width: 0; padding: 8px 10px 18px; background: #fff; }
 .view-stack { display: flex; flex-direction: column; gap: 8px; }
 .view-title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 35px; padding: 0 0 5px; border-bottom: 1px solid var(--border); }
@@ -110,7 +101,6 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
 .card > .card-header + * { margin-top: 4px; }
 .card .condition-list, .card .fact-list, .card .allergy-list, .card .table-wrap, .card .vitals-grid { margin-bottom: 5px; }
 .empty-state { margin-top: 6px !important; margin-bottom: 6px !important; padding: 6px; border: 1px dashed var(--border); color: #555; background: #fafafa; font-size: 11px; }
-.card-footnote { margin-top: 3px !important; margin-bottom: 6px !important; color: #555; font-size: 9px; }
 .overview-brief-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(230px, .48fr); gap: 8px; }
 .clinical-summary-brief, .allergy-brief { padding: 7px 8px; border: 1px solid var(--border); background: #fff; }
 .clinical-summary-brief { border-left: 3px solid var(--accent); }
@@ -155,7 +145,6 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
 .chart-axis-label, .chart-date-label { fill: #444; font: 9px "Segoe UI", Arial, sans-serif; }
 .chart-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: square; stroke-linejoin: miter; }
 .chart-point { stroke: #fff; stroke-width: 1; fill: var(--accent); }
-.chart-footnote { color: #555; font-size: 8px; }
 
 .timeline-list { position: relative; display: flex; flex-direction: column; gap: 0; padding: 0 6px; }
 .timeline-list::before { position: absolute; top: 10px; bottom: 10px; left: 12px; border-left: 1px solid #aaa; content: ''; }
@@ -175,7 +164,6 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
 .fact-row strong { color: #222; font-size: 11px; font-weight: 600; line-height: 1.35; }
 .fact-row > span, .fact-row > small { color: #444; font-size: 9px; line-height: 1.35; }
 .fact-row > div:first-child > span:not(.pill) { display: block; margin-top: 2px; color: #555; font-size: 9px; }
-.provisional-tag { padding: 2px 4px; border: 1px solid #bbb; color: #333; background: #f6f6f6; font-size: 9px; }
 .clean-list { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; }
 .clean-list > li { padding: 4px 2px; border-bottom: 1px solid #ddd; }
 .clean-list > li:last-child { border-bottom: 0; }
@@ -184,11 +172,23 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
 .clean-list > li > p { margin: 2px 0; color: #333; font-size: 10px; line-height: 1.35; }
 .clean-list > li > small { color: #555; font-size: 9px; }
 
-.episode-brief { padding: 7px 8px; border: 1px solid var(--border); border-left: 3px solid var(--accent); background: #fff; }
-.episode-brief > strong { display: block; margin-bottom: 3px; color: #222; font-size: 10px; text-transform: uppercase; }
-.episode-brief p { margin: 0; color: #222; font-size: 12px; line-height: 1.45; }
-.episode-brief-meta { display: flex; flex-wrap: wrap; gap: 3px 16px; margin-top: 5px; padding-top: 4px; border-top: 1px solid #ddd; color: #444; font-size: 9px; }
 .episode-reference { padding: 2px 5px; border: 1px solid var(--border); color: #444; font-size: 9px; }
+.episode-report { border: 1px solid var(--border-dark); background: #fff; }
+.episode-report-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 8px; border-bottom: 1px solid var(--border); background: var(--header); }
+.episode-report-header h2 { margin: 0; color: #222; font-size: 13px; font-weight: 700; }
+.episode-report-header span { color: #444; font-size: 10px; }
+.episode-report-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; padding: 1px 8px; }
+.report-section { min-width: 0; padding: 5px 2px; border-bottom: 1px solid #ddd; }
+.report-section h3 { margin: 0 0 3px; color: #333; font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.report-section ul { margin: 0; padding-left: 14px; }
+.report-section li, .report-section p { margin: 1px 0; color: #1c1c1c; font-size: 11px; line-height: 1.42; white-space: pre-wrap; }
+.report-course, .report-investigations, .report-observations { grid-column: 1 / -1; }
+.report-course li { margin-bottom: 3px; }
+.overview-details, .episode-details { border: 1px solid var(--border-dark); background: #fff; }
+.overview-details > summary, .episode-details > summary { padding: 5px 8px; border-bottom: 1px solid var(--border); background: var(--header); color: #222; cursor: pointer; font-size: 10px; font-weight: 700; }
+.overview-details:not([open]) > summary, .episode-details:not([open]) > summary { border-bottom: 0; }
+.overview-details > .overview-grid, .episode-details > .overview-grid { margin: 6px; }
+.episode-details > .note-index { margin: 6px; }
 .episode-record-grid { margin-top: 0; }
 .note-index { border: 1px solid var(--border); background: #fff; }
 .note-index > summary { padding: 5px 7px; border-bottom: 1px solid var(--border); background: var(--header); color: #222; cursor: pointer; font-size: 10px; font-weight: 700; }
@@ -230,15 +230,14 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
 .welcome-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; margin: 10px; padding: 10px; border: 1px solid var(--border); background: #fff; }
 .welcome-card h2 { margin: 2px 0; color: #222; font-size: 16px; font-weight: 700; }
 .welcome-card p { max-width: 700px; margin: 3px 0; color: #333; font-size: 12px; line-height: 1.45; }
-.welcome-card ul { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 4px 0; padding-left: 16px; color: #333; font-size: 10px; }
-.welcome-illustration { display: none; }
-.app-footer { display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; padding: 5px 1px 0; border-top: 1px solid var(--border); color: #555; font-size: 9px; }
 
 @media (max-width: 900px) {
   .profile-layout { grid-template-columns: 220px minmax(0, 1fr); }
   .overview-brief-grid { grid-template-columns: 1fr; }
   .clinical-summary-brief dl > div { grid-template-columns: 115px minmax(0, 1fr); }
   .clinical-table { min-width: 620px; }
+  .episode-report-grid { grid-template-columns: 1fr; }
+  .report-course, .report-investigations, .report-observations { grid-column: auto; }
 }
 @media (max-width: 680px) {
   .app-shell { margin: 0; border: 0; }
@@ -253,11 +252,9 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
   .episode-nav-list { display: flex; overflow-x: auto; }
   .episode-nav-item { width: 185px; min-width: 185px; border-right: 1px solid #ddd; }
   .episode-nav-item .nav-timeline-mark { display: none; }
-  .sidebar-footer { display: none; }
   .overview-grid { grid-template-columns: 1fr; }
   .span-two { grid-column: auto; }
   .vitals-grid { grid-template-columns: 1fr; }
   .patient-demographics { gap: 3px 10px; }
   .overview-brief-grid { grid-template-columns: 1fr; }
-  .app-footer { flex-direction: column; }
 }

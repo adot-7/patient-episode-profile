@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildPatientProfile, episodeSnapshot, episodeSummary, longitudinalSummary, metricSeries } from '../client/src/profileData.js';
+import { buildPatientProfile, episodeReport, episodeSnapshot, longitudinalSummary, metricSeries } from '../client/src/profileData.js';
 
 test('longitudinal profile merges repeated conditions and medication courses while retaining episodes', () => {
   const profile = buildPatientProfile([
@@ -58,6 +58,33 @@ test('clinical summaries use only recorded diagnoses, complaints, and episode co
   assert.match(summary, /1 inpatient episode/);
   assert.match(summary, /Recorded condition/);
   assert.deepEqual(summaryFacts.map((item) => item.label), ['Episode history', 'Primary diagnoses', 'Other recorded conditions', 'Medication history']);
-  assert.match(episodeSummary(patient), /Recorded complaint/);
+  const report = episodeReport(patient);
+  assert.ok(report.find((section) => section.title === 'Presentation').lines.some((line) => line.includes('Recorded complaint')));
+  assert.ok(report.find((section) => section.title === 'Diagnoses and problems').lines.some((line) => line.includes('Recorded condition')));
   assert.doesNotMatch(summary, /improved|stable|resolved/i);
+});
+
+test('episode report organizes recorded presentation, note course, medications, investigations, and vitals', () => {
+  const report = episodeReport({
+    episodeId: '1-44',
+    complaints: [{ name: 'Recorded symptom', remark: 'Recorded for four days' }],
+    diagnoses: [{ diagnosis: 'Recorded diagnosis', isPrimary: true }],
+    problems: [{ problem: 'Recorded comorbidity', status: 'ACTIVE' }],
+    allergies: { items: [{ allergy: 'Recorded allergen', reaction: 'Rash' }] },
+    notes: [{ title: 'Progress note', dateOfEntry: '12 JAN 2025', content: ['Assessment: Documented episode progression.', 'Plan: Continue recorded course.'] }],
+    medications: [{ medication: 'Recorded medicine', status: 'ACTIVE', route: 'ORAL', schedule: 'BD', startDate: '2025-01-13' }],
+    labOrders: [{ name: 'Recorded test', status: 'COMPLETED', orderDateTime: '2025-01-12' }],
+    radOrders: [{ procedure: 'Recorded imaging', status: 'COMPLETED', dateTime: '2025-01-12' }],
+    vitals: [{ dateTime: '2025-01-12 10:00', measurements: [{ name: 'PULSE', value: '72' }] }],
+  });
+  const sections = Object.fromEntries(report.map((section) => [section.title, section.lines.join(' ')]));
+  assert.match(sections.Presentation, /Recorded symptom.*four days/);
+  assert.match(sections['Diagnoses and problems'], /Recorded diagnosis.*Recorded comorbidity/);
+  assert.match(sections['Course and dated events'], /Assessment: Documented episode progression/);
+  assert.match(sections['Course and dated events'], /Lab order: Recorded test/);
+  assert.match(sections['Course and dated events'], /Medication started: Recorded medicine/);
+  assert.match(sections['Treatment \/ medication course'], /Recorded medicine.*ACTIVE/);
+  assert.match(sections.Investigations, /Recorded test.*Recorded imaging/);
+  assert.match(sections['Latest observations'], /PULSE 72/);
+  assert.doesNotMatch(JSON.stringify(report), /improved|stable|resolved/i);
 });

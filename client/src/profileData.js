@@ -171,7 +171,7 @@ export function longitudinalSummary(records, profile) {
     : 'No additional diagnosis/problem entries were returned.';
   const medicationStatuses = sortedUnique(profile.medications.flatMap((medication) => medication.statuses));
   const medicationText = profile.medications.length
-    ? `${profile.medications.length} distinct medication name/route entries; recorded statuses: ${medicationStatuses.join(', ') || 'not recorded'}. See courses below; current use is not inferred.`
+    ? `${profile.medications.length} distinct medication name/route entries; recorded statuses: ${medicationStatuses.join(', ') || 'not recorded'}.`
     : 'No medication records were returned for the loaded episodes.';
 
   return [
@@ -182,16 +182,214 @@ export function longitudinalSummary(records, profile) {
   ];
 }
 
-export function episodeSummary(patient) {
-  const snapshot = episodeSnapshot(patient);
-  const primary = patient?.diagnoses?.find((diagnosis) => diagnosis.isPrimary)?.diagnosis;
-  const leadingDiagnosis = primary || snapshot.diagnoses[0];
-  const complaints = snapshot.complaints.slice(0, 3);
-  const parts = [];
-  if (leadingDiagnosis) parts.push(`Diagnosis recorded: ${clean(leadingDiagnosis)}.`);
-  if (complaints.length) parts.push(`Presenting concerns: ${complaints.join('; ')}.`);
-  parts.push(`The episode contains ${snapshot.noteCount} notes, ${snapshot.medicationCount} medication records, and ${snapshot.labOrderCount + snapshot.radiologyOrderCount} test/imaging orders.`);
-  return parts.join(' ');
+function noteCourseEvents(notes) {
+  const relevantLabel = /^(?!pain\b)(assessment|impression|progress|course|plan|treatment|management|discharge|response|condition at discharge|clinical status|follow[\s-]?up)/i;
+  const candidates = [];
+  for (const note of notes || []) {
+    const excerpts = (note.content || []).filter((line) => {
+      const separator = String(line).indexOf(':');
+      const label = separator > 0 ? String(line).slice(0, separator) : String(line);
+      return relevantLabel.test(label) && String(line).length > 12;
+    });
+    if (!excerpts.length) continue;
+    for (const text of sortedUnique(excerpts).slice(0, 2)) candidates.push({ date: note.dateOfEntry || '', text });
+  }
+  return candidates;
+}
+
+function presentationNoteLines(notes) {
+  const pattern = /^(history of present illness|clinical history|presenting complaints|chief complaint|onset|symptoms)/i;
+  const lines = [];
+  for (const note of notes || []) {
+    for (const line of note.content || []) {
+      const separator = String(line).indexOf(':');
+      if (separator <= 0 || !pattern.test(String(line).slice(0, separator).trim())) continue;
+      const answer = String(line).slice(separator + 1).trim();
+      if (answer) lines.push(`${note.dateOfEntry ? `${note.dateOfEntry}: ` : ''}${answer}`);
+    }
+  }
+  return sortedUnique(lines).slice(0, 2);
+}
+
+function episodeMedicationLines(medications) {
+  const groups = new Map();
+  for (const medication of medications || []) {
+    const name = clean(medication.medication);
+    if (!name) continue;
+    const key = keyOf(name, medication.route);
+    const item = groups.get(key) || { name, route: clean(medication.route), statuses: [], schedules: [], starts: [], stops: [] };
+    item.statuses.push(medication.status, ...(Array.isArray(medication.statuses) ? medication.statuses : []));
+    item.schedules.push(medication.schedule, medication.scheduleType);
+    item.starts.push(medication.startDate);
+    item.stops.push(medication.stopDate);
+    groups.set(key, item);
+  }
+  const ordered = [...groups.values()].map((item) => ({
+    ...item,
+    statuses: sortedUnique(item.statuses),
+    schedules: sortedUnique(item.schedules),
+    starts: sortedUnique(item.starts),
+    stops: sortedUnique(item.stops),
+  })).sort((left, right) => (
+    Number(right.statuses.some((status) => status.toLowerCase() === 'active'))
+      - Number(left.statuses.some((status) => status.toLowerCase() === 'active'))
+    || left.name.localeCompare(right.name)
+  ));
+  return ordered.slice(0, 6).map((item) => [
+    item.name,
+    item.route,
+    item.statuses.length ? `status: ${item.statuses.join(', ')}` : '',
+    item.schedules.join(', '),
+    item.starts.length ? `start: ${item.starts.join(', ')}` : '',
+    item.stops.length ? `stop: ${item.stops.join(', ')}` : '',
+  ].filter(Boolean).join(' · '));
+}
+
+function investigationLines(items, labelKey, dateKey) {
+  const orders = items || [];
+  const lines = orders.map((item) => [
+    clean(item[labelKey]),
+    clean(item.status),
+    dateKey ? clean(item[dateKey]) : '',
+  ].filter(Boolean).join(' · ')).filter((line) => line.replace(/[^a-z0-9]/gi, '')).slice(0, 4);
+  return lines;
+}
+
+function latestVitalLine(patient) {
+  const vital = patient?.vitals?.at(-1);
+  const values = (vital?.measurements || [])
+    .map((measurement) => `${clean(measurement.name)} ${clean(measurement.value)}${measurement.unit ? ` ${clean(measurement.unit)}` : ''}`)
+    .filter(Boolean);
+  return values.length ? `${vital.dateTime || 'Date not recorded'}: ${values.join(' · ')}` : '';
+}
+
+function episodeDateKey(value) {
+  const text = clean(value);
+  const iso = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime())
+    ? text.split(/\s+/).slice(0, 3).join(' ')
+    : `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+}
+
+function episodeCourseLines(patient) {
+  const byDate = new Map();
+  const add = (date, event) => {
+    const key = episodeDateKey(date);
+    if (!key || !event) return;
+    const entries = byDate.get(key) || [];
+    if (!entries.includes(event)) entries.push(event);
+    byDate.set(key, entries);
+  };
+
+  for (const diagnosis of patient?.diagnoses || []) {
+    if (diagnosis.dateEntered && diagnosis.diagnosis) add(diagnosis.dateEntered, `Diagnosis recorded: ${clean(diagnosis.diagnosis)}`);
+  }
+  for (const medication of patient?.medications || []) {
+    const name = clean(medication.medication);
+    if (!name) continue;
+    const status = clean(medication.status);
+    if (medication.startDate) add(medication.startDate, `Medication started: ${name}${status ? ` (${status})` : ''}`);
+    if (medication.stopDate) add(medication.stopDate, `Medication stop date: ${name}${status ? ` (${status})` : ''}`);
+  }
+  for (const order of patient?.labOrders || []) {
+    if (order.orderDateTime && order.name) add(order.orderDateTime, `Lab order: ${clean(order.name)}${order.status ? ` (${clean(order.status)})` : ''}`);
+  }
+  for (const order of patient?.radOrders || []) {
+    if (order.dateTime && order.procedure) add(order.dateTime, `Imaging order: ${clean(order.procedure)}${order.status ? ` (${clean(order.status)})` : ''}`);
+  }
+  for (const note of noteCourseEvents(patient?.notes)) {
+    add(note.date, note.text);
+  }
+
+  const dates = [...byDate.keys()].sort((left, right) => {
+    const leftTime = Date.parse(left);
+    const rightTime = Date.parse(right);
+    if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) return leftTime - rightTime;
+    return left.localeCompare(right);
+  });
+  const selectedDates = dates.length <= 6
+    ? dates
+    : [...new Set(Array.from({ length: 6 }, (_, index) => Math.round(index * (dates.length - 1) / 5)))].map((index) => dates[index]);
+  return selectedDates.map((date) => {
+    const events = byDate.get(date);
+    const summary = events.slice(0, 3).join('; ');
+    const remainder = events.length > 3 ? `; ${events.length - 3} additional entries` : '';
+    return `${shortDate(date)} · ${summary}${remainder}`;
+  });
+}
+
+export function episodeReport(patient) {
+  const complaintGroups = new Map();
+  for (const complaint of patient?.complaints || []) {
+    const name = clean(complaint.name);
+    if (!name) continue;
+    const key = name.toLocaleLowerCase();
+    const item = complaintGroups.get(key) || { name, type: complaint.type, remarks: [] };
+    if (/^chief complaint$/i.test(complaint.type || '')) item.type = 'Chief Complaint';
+    const remark = clean(complaint.remark);
+    if (remark && !item.remarks.includes(remark)) item.remarks.push(remark);
+    complaintGroups.set(key, item);
+  }
+  const complaints = [...complaintGroups.values()]
+    .sort((left, right) => Number(/^chief complaint$/i.test(right.type || '')) - Number(/^chief complaint$/i.test(left.type || '')))
+    .slice(0, 3)
+    .map((item) => `${item.name}${item.remarks.length ? ` — ${item.remarks.slice(0, 2).join('; ')}` : ''}${item.remarks.length > 2 ? '; further remarks in episode details' : ''}`);
+  const presentation = [...new Set([...complaints, ...presentationNoteLines(patient?.notes)])].slice(0, 5);
+
+  const diagnosisLines = [];
+  const diagnosisKeys = new Set();
+  for (const diagnosis of patient?.diagnoses || []) {
+    const label = clean(diagnosis.diagnosis);
+    const key = label.toLocaleLowerCase();
+    if (!label || diagnosisKeys.has(key)) continue;
+    diagnosisKeys.add(key);
+    diagnosisLines.push(`${diagnosis.isPrimary ? 'Primary diagnosis' : 'Diagnosis'}: ${label}`);
+  }
+  for (const problem of patient?.problems || []) {
+    const label = clean(problem.problem);
+    const key = label.toLocaleLowerCase();
+    if (!label || diagnosisKeys.has(key)) continue;
+    diagnosisKeys.add(key);
+    diagnosisLines.push(`Problem: ${label}${problem.status ? ` · ${clean(problem.status)}` : ''}`);
+  }
+  const diagnosesAndProblems = diagnosisLines.slice(0, 6);
+
+  const allergyGroups = new Map();
+  for (const allergy of patient?.allergies?.items || []) {
+    const name = clean(allergy.allergy);
+    if (!name) continue;
+    const key = name.toLocaleLowerCase();
+    const item = allergyGroups.get(key) || { name, details: [] };
+    for (const detail of [clean(allergy.reaction), clean(allergy.symptoms)].filter(Boolean)) {
+      if (!item.details.includes(detail)) item.details.push(detail);
+    }
+    allergyGroups.set(key, item);
+  }
+  const allergies = [...allergyGroups.values()].slice(0, 4).map((item) => (
+    `${item.name}${item.details.length ? ` · ${item.details.join('; ')}` : ''}`
+  ));
+
+  const course = episodeCourseLines(patient);
+  const medications = episodeMedicationLines(patient?.medications);
+  const labLines = investigationLines(patient?.labOrders, 'name', 'orderDateTime');
+  const radiologyLines = investigationLines(patient?.radOrders, 'procedure', 'dateTime');
+  const investigations = [
+    ...labLines.map((line) => `Laboratory: ${line}`),
+    ...radiologyLines.map((line) => `Radiology: ${line}`),
+  ];
+  const latestVital = latestVitalLine(patient);
+
+  return [
+    { key: 'presentation', title: 'Presentation', lines: presentation },
+    { key: 'diagnoses', title: 'Diagnoses and problems', lines: diagnosesAndProblems },
+    { key: 'allergies', title: 'Allergies', lines: allergies.length ? allergies : (clean(patient?.allergies?.status) ? [clean(patient.allergies.status)] : []) },
+    { key: 'course', title: 'Course and dated events', lines: course },
+    { key: 'medications', title: 'Treatment / medication course', lines: medications },
+    { key: 'investigations', title: 'Investigations', lines: investigations },
+    { key: 'observations', title: 'Latest observations', lines: latestVital ? [latestVital] : [] },
+  ].filter((section) => section.lines.length > 0);
 }
 
 export function shortDate(value) {
