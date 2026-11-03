@@ -4,6 +4,7 @@ const TIMEOUT_MS = Number(process.env.SANSYS_TIMEOUT_MS || 30000);
 const PAGE_SIZE = 25;
 const CACHE_MS = 60_000;
 const MAX_CACHE_ENTRIES = 12;
+const DEFAULT_NOTE_DETAIL_LIMIT = 48;
 const shellCache = new Map();
 const patientCache = new Map();
 
@@ -95,14 +96,15 @@ function buildEpisodes(raw) {
   const episodes = new Map();
   for (const visit of visits) {
     const id = asText(visit?.id);
-    if (!/^1-\d+$/.test(id)) continue;
     const label = asText(visit.name || visit.label || id);
+    if (!id || id === '0' || /^select\s+ip\s+visit$/i.test(label)) continue;
+    const admissionId = id.includes('-') ? id.slice(id.indexOf('-') + 1) : id;
     episodes.set(id, {
       id,
       label,
       startDate: parseEpisodeDate(label),
-      admissionId: id.slice(2),
-      admissionIen: id.slice(2),
+      admissionId,
+      admissionIen: admissionId,
     });
   }
   const result = [...episodes.values()].sort((left, right) => right.startDate.localeCompare(left.startDate));
@@ -111,6 +113,21 @@ function buildEpisodes(raw) {
     episode.dateTo = index > 0 ? addDays(result[index - 1].startDate, -1) : '';
   });
   return result;
+}
+
+function explicitEpisode(id) {
+  const value = clean(id);
+  if (!value) return null;
+  const admissionId = value.includes('-') ? value.slice(value.indexOf('-') + 1) : value;
+  return {
+    id: value,
+    label: value,
+    startDate: '',
+    admissionId,
+    admissionIen: admissionId,
+    dateFrom: '',
+    dateTo: '',
+  };
 }
 
 function provenance(endpoint, path, episode, recordId) {
@@ -303,20 +320,32 @@ async function fetchNotes(dfn, episode) {
     offset += page.length;
   }
 
-  const details = [];
-  for (let index = 0; index < rawNotes.length; index += 8) {
-    const batch = await Promise.all(rawNotes.slice(index, index + 8).map(async (note) => {
+  const detailIndexes = noteDetailIndexes(rawNotes.length, DEFAULT_NOTE_DETAIL_LIMIT);
+  const details = Array(rawNotes.length).fill(null);
+  for (let index = 0; index < detailIndexes.length; index += 8) {
+    const batchIndexes = detailIndexes.slice(index, index + 8);
+    const batch = await Promise.all(batchIndexes.map(async (noteIndex) => {
+      const note = rawNotes[noteIndex];
       try {
-        return await requestJson('GET', `/clinical-notes/view/${encoded(note.note_ien)}`);
+        return { index: noteIndex, detail: await requestJson('GET', `/clinical-notes/view/${encoded(note.note_ien)}`) };
       } catch (error) {
         console.warn(`[sansys] note detail unavailable (${error.message})`);
-        return null;
+        return { index: noteIndex, detail: null };
       }
     }));
-    details.push(...batch);
+    for (const result of batch) details[result.index] = result.detail;
   }
 
   return rawNotes.map((note, index) => mapNote(note, details[index]));
+}
+
+function noteDetailIndexes(total, limit) {
+  if (total <= limit) return Array.from({ length: total }, (_, index) => index);
+  const indexes = new Set([0, total - 1]);
+  for (let index = 0; indexes.size < limit; index += 1) {
+    indexes.add(Math.round(index * (total - 1) / (limit - 1)));
+  }
+  return [...indexes].sort((left, right) => left - right);
 }
 
 function factKey(type, item) {
@@ -422,10 +451,11 @@ function writeCache(cache, key, value) {
   return value;
 }
 
-export async function fetchPatientShell(dfn) {
+export async function fetchPatientShell(dfn, requestedEpisodeId = '') {
   dfn = clean(dfn);
+  requestedEpisodeId = clean(requestedEpisodeId);
   if (!dfn || dfn.length > 128) throw new SansysError('A valid patient identifier is required.', 400);
-  const cacheKey = `shell:${dfn}`;
+  const cacheKey = `shell:${dfn}:${requestedEpisodeId}`;
   const cached = readCache(shellCache, cacheKey);
   if (cached) return structuredClone(cached);
 
@@ -436,7 +466,11 @@ export async function fetchPatientShell(dfn) {
   ]);
   const episodes = buildEpisodes(discovery);
   const defaultId = asText(dataOf(discovery).default_visit);
-  const episode = episodes.find((candidate) => candidate.id === defaultId) || episodes[0] || null;
+  const requestedEpisode = episodes.find((candidate) => candidate.id === requestedEpisodeId) || explicitEpisode(requestedEpisodeId);
+  const episode = requestedEpisode || episodes.find((candidate) => candidate.id === defaultId) || episodes[0] || null;
+  const availableEpisodes = requestedEpisode && !episodes.some((candidate) => candidate.id === requestedEpisode.id)
+    ? [requestedEpisode, ...episodes]
+    : episodes;
   const allergyItems = listOf(allergiesRaw, 'data').map((item, index) => ({
     allergy: clean(item.allergy ?? item.allergy_name),
     reaction: asText(item.natureOfReaction ?? item.nature),
@@ -448,7 +482,7 @@ export async function fetchPatientShell(dfn) {
     dfn,
     demographics: normalizeDemographics(demographics),
     allergies: { status: asText(allergiesRaw.status), items: allergyItems },
-    episodes,
+    episodes: availableEpisodes,
     episodeId: episode?.id || '',
     episode,
     notes: [],
@@ -475,17 +509,18 @@ async function fetchVitals(dfn, episode) {
   return response;
 }
 
-export async function fetchEpisodePatient(dfn, requestedEpisodeId) {
+export async function fetchEpisodePatient(dfn, requestedEpisodeId, options = {}) {
   dfn = clean(dfn);
-  const cacheKey = `episode:${dfn}:${requestedEpisodeId}`;
+  const includeNoteDetails = options.includeNoteDetails !== false;
+  const cacheKey = `episode:${dfn}:${requestedEpisodeId}:${includeNoteDetails ? 'details' : 'index'}`;
   const cached = readCache(patientCache, cacheKey);
   if (cached) return structuredClone(cached);
-  const shell = await fetchPatientShell(dfn);
+  const shell = await fetchPatientShell(dfn, requestedEpisodeId);
   const episode = shell.episodes.find((candidate) => candidate.id === requestedEpisodeId);
   if (!episode) throw new SansysError(`Episode ${requestedEpisodeId || '(empty)'} was not found for this patient.`, 404);
 
   const [notes, labsRaw, radRaw, vitalsRaw, problemsRaw, diagnosisRaw, complaintsRaw, medicationsRaw] = await Promise.all([
-    fetchNotes(dfn, episode),
+    includeNoteDetails ? fetchNotes(dfn, episode) : fetchNoteIndex(dfn, episode),
     requestJson('POST', '/lab/list', { dfn, status: '0', visit_id: episode.id, from_date: '', to_date: '' }),
     requestJson('POST', '/rad/cpoe-list', { dfn, status: '0', visit_id: episode.id, from_date: '', to_date: '' }),
     fetchVitals(dfn, episode),
@@ -529,8 +564,37 @@ export async function fetchEpisodePatient(dfn, requestedEpisodeId) {
   return structuredClone(writeCache(patientCache, cacheKey, patient));
 }
 
+async function fetchNoteIndex(dfn, episode) {
+  const rawNotes = [];
+  let offset = 0;
+  while (true) {
+    const response = await requestJson('POST', '/clinical-notes/list', {
+      patient_dfn: dfn,
+      duz: DUZ,
+      limit: PAGE_SIZE,
+      offset,
+      date_from: episode.dateFrom,
+      date_to: episode.dateTo,
+      search_text: '',
+      status_filter: '',
+      visit_id: episode.id,
+    });
+    const page = listOf(response, 'notes');
+    rawNotes.push(...page);
+    const total = response?.total_records ?? dataOf(response)?.total_records;
+    if (!page.length || (total !== undefined && total !== null && rawNotes.length >= Number(total))) break;
+    if ((total === undefined || total === null) && page.length < PAGE_SIZE) break;
+    offset += page.length;
+  }
+  return rawNotes.map((note) => mapNote(note));
+}
+
 export async function checkSansysConnection() {
+  const healthDfn = clean(process.env.SANSYS_HEALTH_DFN);
+  if (!healthDfn) {
+    return { ok: false, configured: false, message: 'Set SANSYS_HEALTH_DFN to run the Sansys connectivity probe.' };
+  }
   const started = Date.now();
-  await requestJson('GET', '/patientHome/load-demographics/PAT123456?userId=1');
-  return { ok: true, elapsedMs: Date.now() - started, baseUrl: BASE_URL };
+  await requestJson('GET', `/patientHome/load-demographics/${encoded(healthDfn)}?userId=1`);
+  return { ok: true, configured: true, elapsedMs: Date.now() - started, baseUrl: BASE_URL };
 }

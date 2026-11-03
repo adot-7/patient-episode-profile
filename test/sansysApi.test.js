@@ -16,13 +16,24 @@ function sansysFixtureFetch(input, options = {}) {
   const body = options.body ? JSON.parse(options.body) : {};
   fetchCalls.push(`${method} ${url.pathname}`);
 
+  if (url.pathname === '/diagnosis/dash/list' && method === 'POST' && body.dfn === 'EXPLICIT-EPISODE' && !body.visit_id) {
+    return jsonResponse({ success: true, data: { visits: { ipVisits: [{ id: '0', name: 'Select IP Visit' }] } } });
+  }
+  if (url.pathname === '/patientHome/load-demographics/EXPLICIT-EPISODE') {
+    return jsonResponse({ success: true, data: { lfname: 'Explicit', llname: 'Episode', lsex: 'Male', lage: '50' } });
+  }
+  if (url.pathname === '/allergies/dashboard-list/EXPLICIT-EPISODE') {
+    return jsonResponse({ success: true, status: 'No Allergy Assessment', data: [] });
+  }
+
   if (url.pathname === '/diagnosis/dash/list' && method === 'POST' && !body.visit_id) {
     return jsonResponse({ success: true, data: {
       default_visit: '1-2025',
-      visits: { ipVisits: [
-        { id: '0', name: 'Invalid non-episode' },
-        { id: '1-2025', name: '12 JAN 2025 11:00 - MEDICAL WARD' },
-        { id: '1-2024', name: '03 MAY 2024 09:00 - SURGICAL WARD' },
+       visits: { ipVisits: [
+         { id: '0', name: 'Invalid non-episode' },
+         { id: '1-2025', name: '12 JAN 2025 11:00 - MEDICAL WARD' },
+         { id: '1-2024', name: '03 MAY 2024 09:00 - SURGICAL WARD' },
+         { id: '2023', name: '17 NOV 2023 08:00 - MEDICAL WARD' },
       ] },
       diagnoses: [],
     } });
@@ -65,7 +76,7 @@ afterEach(() => {
 test('profile API builds episodes from Sansys discovery and ignores invalid visit rows', async () => {
   const response = await request(createApp()).get('/api/patients/TEST-PROFILE-1/shell');
   assert.equal(response.status, 200);
-  assert.deepEqual(response.body.episodes.map((episode) => episode.id), ['1-2025', '1-2024']);
+  assert.deepEqual(response.body.episodes.map((episode) => episode.id), ['1-2025', '1-2024', '2023']);
   assert.equal(response.body.episodeId, '1-2025');
   assert.equal(response.body.demographics.firstName, 'Sample');
   assert.equal(response.body.allergies.items[0].allergy, 'Example allergen');
@@ -83,6 +94,14 @@ test('profile API loads selected episode collections, notes, and source provenan
   assert.equal(response.body.vitals[0].measurements.find((item) => item.name === 'BLOOD PRESSURE').value, '124/78');
   assert.ok(response.body.diagnoses[0].provenance[0].endpoint.includes('/diagnosis/dash/list'));
   assert.ok(fetchCalls.some((call) => call === 'GET /clinical-notes/view/NOTE-1'));
+});
+
+test('profile API honors an EHR-provided episode when discovery only has the placeholder visit', async () => {
+  const response = await request(createApp()).get('/api/patients/EXPLICIT-EPISODE/shell?episodeId=1-7788');
+  assert.equal(response.status, 200);
+  assert.equal(response.body.episodeId, '1-7788');
+  assert.deepEqual(response.body.episodes.map((episode) => episode.id), ['1-7788']);
+  assert.equal(response.body.episodes[0].admissionId, '7788');
 });
 
 test('profile API rejects writes and converts upstream failures to a clear 502', async () => {

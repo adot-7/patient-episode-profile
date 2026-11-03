@@ -16,7 +16,7 @@ Edit `.env` to use the Sansys address reachable from that host. Confirm the dire
 
 ```sh
 curl -m 15 -o /dev/null -w '%{http_code} %{time_total}s\n' \
-  'http://182.70.249.137:5050/patientHome/load-demographics/PAT123456?userId=1'
+  'http://182.70.249.137:5050/patientHome/load-demographics/<known-test-dfn>?userId=1'
 ```
 
 Then build and start:
@@ -58,6 +58,9 @@ location /patient-profile/ {
 
 This makes the app available at `https://<existing-ehr-host>/patient-profile/`; its API is namespaced under `/patient-profile/api`, so it does not collide with the discharge-summary API. Keep the route behind the same authenticated ingress used by the EHR. Do not expose port 3002 directly to the public internet.
 
+When embedded from the EHR, pass both the patient DFN and current inpatient episode:
+`/patient-profile/?dfn=<dfn>&episodeId=<episode-id>`. The explicit episode ID is used even when the Sansys discovery response only returns the placeholder visit.
+
 ## Without Docker
 
 With Node.js 20 installed:
@@ -78,6 +81,7 @@ For a persistent host service, run `node server/index.js` with the repo as its w
 | `PORT` | `3002` | Container/service listen port |
 | `APP_BASE_PATH` | `/` | Public URL root; use `/patient-profile/` for an EHR subpath |
 | `SANSYS_BASE_URL` | `http://182.70.249.137:5050` | Sansys read API base URL |
+| `SANSYS_HEALTH_DFN` | empty | Optional known DFN used by the Sansys connectivity probe |
 | `SANSYS_TIMEOUT_MS` | `30000` | Per-request Sansys timeout |
 | `PROFILE_BIND_ADDRESS` | `127.0.0.1` | Host address published by Compose |
 | `PROFILE_HOST_PORT` | `3002` | Host-side port published by Compose |
