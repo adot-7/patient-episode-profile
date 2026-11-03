@@ -83,6 +83,22 @@ function parseEpisodeDate(label) {
   return new Date(Date.UTC(Number(match[3]), month, Number(match[1]))).toISOString().slice(0, 10);
 }
 
+function parseLooseDate(value) {
+  const text = clean(value)
+    .replace(/@/g, ' ')
+    .replace(/,/g, '')
+    .replace(/\bSEPT\b/gi, 'SEP');
+  if (!text || /^(invalid date|n\/?a|null|undefined)$/i.test(text)) return '';
+  const date = new Date(`${text} UTC`);
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
+}
+
+function inEpisodeWindow(value, episode) {
+  const date = parseLooseDate(value);
+  if (!date || !episode?.startDate) return true;
+  return date >= episode.startDate && (!episode.dateTo || date <= episode.dateTo);
+}
+
 function addDays(value, amount) {
   if (!value) return '';
   const date = new Date(`${value}T00:00:00Z`);
@@ -117,7 +133,8 @@ function buildEpisodes(raw) {
   const result = [...episodes.values()].sort((left, right) => right.startDate.localeCompare(left.startDate));
   result.forEach((episode, index) => {
     episode.dateFrom = episode.startDate;
-    const boundary = index > 0 ? addDays(result[index - 1].startDate, -1) : '';
+    const previousSameType = result.slice(0, index).find((candidate) => candidate.visitType === episode.visitType && candidate.startDate);
+    const boundary = previousSameType ? addDays(previousSameType.startDate, -1) : '';
     episode.dateTo = boundary && (!episode.startDate || boundary >= episode.startDate) ? boundary : '';
   });
   return result;
@@ -307,6 +324,7 @@ function mapNote(note, detail) {
 
 async function fetchNotes(dfn, episode) {
   const rawNotes = [];
+  let fetchedCount = 0;
   let offset = 0;
   while (true) {
     const pageResponse = await requestJson('POST', '/clinical-notes/list', {
@@ -321,9 +339,10 @@ async function fetchNotes(dfn, episode) {
       visit_id: episode.id,
     });
     const page = listOf(pageResponse, 'notes');
-    rawNotes.push(...page);
+    fetchedCount += page.length;
+    rawNotes.push(...page.filter((note) => inEpisodeWindow(note.date_of_entry, episode)));
     const total = pageResponse?.total_records ?? dataOf(pageResponse)?.total_records;
-    if (!page.length || (total !== undefined && total !== null && rawNotes.length >= Number(total))) break;
+    if (!page.length || (total !== undefined && total !== null && fetchedCount >= Number(total))) break;
     if ((total === undefined || total === null) && page.length < PAGE_SIZE) break;
     offset += page.length;
   }
@@ -539,13 +558,19 @@ export async function fetchEpisodePatient(dfn, requestedEpisodeId, options = {})
   ]);
 
   const noteFacts = factsFromNotes(notes);
-  const endpointDiagnoses = mapEndpointList(diagnosisRaw, 'diagnoses', '/diagnosis/dash/list', episode, mapDiagnosis, (item) => item.ien);
+  const endpointDiagnoses = mapEndpointList(diagnosisRaw, 'diagnoses', '/diagnosis/dash/list', episode, mapDiagnosis, (item) => item.ien)
+    .filter((item) => inEpisodeWindow(item.dateEntered, episode));
   const endpointProblems = mapEndpointList(problemsRaw, 'problems', '/problems/dash-list', episode, mapProblem);
-  const endpointComplaints = mapEndpointList(complaintsRaw, 'complaints', '/chiefcomplaint/dash-list/:patientIen', episode, mapComplaint);
-  const endpointMedications = mapEndpointList(medicationsRaw, 'orders', '/med/list', episode, mapMedication, (item) => item.medication_ien);
-  const endpointLabs = mapEndpointList(labsRaw, 'orders', '/lab/list', episode, mapLab, (item) => item.order_ien);
-  const endpointRadiology = mapEndpointList(radRaw, 'orders', '/rad/cpoe-list', episode, mapRadiology, (item) => item.order_ien);
-  const episodeVitals = normalizeVitals(vitalsRaw, episode);
+  const endpointComplaints = mapEndpointList(complaintsRaw, 'complaints', '/chiefcomplaint/dash-list/:patientIen', episode, mapComplaint)
+    .filter((item) => inEpisodeWindow(item.date, episode));
+  const endpointMedications = mapEndpointList(medicationsRaw, 'orders', '/med/list', episode, mapMedication, (item) => item.medication_ien)
+    .filter((item) => inEpisodeWindow(item.startDate || item.stopDate, episode));
+  const endpointLabs = mapEndpointList(labsRaw, 'orders', '/lab/list', episode, mapLab, (item) => item.order_ien)
+    .filter((item) => inEpisodeWindow(item.orderDateTime, episode));
+  const endpointRadiology = mapEndpointList(radRaw, 'orders', '/rad/cpoe-list', episode, mapRadiology, (item) => item.order_ien)
+    .filter((item) => inEpisodeWindow(item.dateTime, episode));
+  const episodeVitals = normalizeVitals(vitalsRaw, episode)
+    .filter((item) => inEpisodeWindow(item.dateTime, episode));
   const diagnoses = mergeFacts(endpointDiagnoses, noteFacts.diagnoses, 'diagnoses').sort((left, right) => Number(right.isPrimary) - Number(left.isPrimary));
   const problems = mergeFacts(endpointProblems, noteFacts.problems, 'problems');
   const complaints = mergeFacts(endpointComplaints, noteFacts.complaints, 'complaints');
@@ -574,6 +599,7 @@ export async function fetchEpisodePatient(dfn, requestedEpisodeId, options = {})
 
 async function fetchNoteIndex(dfn, episode) {
   const rawNotes = [];
+  let fetchedCount = 0;
   let offset = 0;
   while (true) {
     const response = await requestJson('POST', '/clinical-notes/list', {
@@ -588,9 +614,10 @@ async function fetchNoteIndex(dfn, episode) {
       visit_id: episode.id,
     });
     const page = listOf(response, 'notes');
-    rawNotes.push(...page);
+    fetchedCount += page.length;
+    rawNotes.push(...page.filter((note) => inEpisodeWindow(note.date_of_entry, episode)));
     const total = response?.total_records ?? dataOf(response)?.total_records;
-    if (!page.length || (total !== undefined && total !== null && rawNotes.length >= Number(total))) break;
+    if (!page.length || (total !== undefined && total !== null && fetchedCount >= Number(total))) break;
     if ((total === undefined || total === null) && page.length < PAGE_SIZE) break;
     offset += page.length;
   }

@@ -11,7 +11,7 @@ function displayName(patient) {
 }
 
 function episodeLabel(episode) {
-  const label = String(episode?.label || episode?.name || episode?.id || 'Inpatient episode');
+  const label = String(episode?.label || episode?.name || episode?.id || 'Recorded episode');
   return label.replace(/^\d{1,2}\s+[A-Z]{3}\s+\d{4}\s+\d{1,2}:\d{2}\s+-\s*/i, '');
 }
 
@@ -118,6 +118,10 @@ function StatusPill({ children, tone = 'neutral' }) {
   return <span className={`pill pill-${tone}`}>{children}</span>;
 }
 
+function medicationStatuses(medication) {
+  return [...new Set([medication.status, ...(Array.isArray(medication.statuses) ? medication.statuses : [])].filter(Boolean))];
+}
+
 function TrendCards({ readings }) {
   const metrics = ['Systolic blood pressure', 'Diastolic blood pressure', 'Pulse', 'Temperature', 'Oxygen saturation', 'Respiratory rate', 'Weight'];
   const present = metrics.filter((metric) => readings.some((reading) => reading.name === metric));
@@ -128,7 +132,7 @@ function TrendCards({ readings }) {
 function EpisodeReport({ patient }) {
   const sections = episodeReport(patient);
   return <section className="episode-report">
-    <header className="episode-report-header"><h2>Episode summary</h2><span>{patient.episode?.startDate ? shortDate(patient.episode.startDate) : patient.episodeId}</span></header>
+    <header className="episode-report-header"><h2>Recorded episode facts</h2><span>{patient.episode?.startDate ? shortDate(patient.episode.startDate) : patient.episodeId}</span></header>
     <div className="episode-report-grid">{sections.map((section) => <section className={`report-section report-${section.key}`} key={section.title}>
       <h3>{section.title}</h3>
       {section.lines.length === 1 ? <p>{section.lines[0]}</p> : <ul>{section.lines.map((line, index) => <li key={`${section.title}-${index}`}>{line}</li>)}</ul>}
@@ -165,7 +169,7 @@ function PatientOverview({ shell, records, profile, failedRecords, onEpisode }) 
   const visibleMedications = medications.slice(0, 10);
   return <div className="view-stack">
     <div className="view-title-row">
-      <div><h1>Patient overview</h1><p>{records.length} inpatient episode{records.length === 1 ? '' : 's'}</p></div>
+      <div><h1>Patient overview</h1><p>{records.length} recorded episode{records.length === 1 ? '' : 's'}</p></div>
     </div>
     <div className="overview-brief-grid">
       <section className="clinical-summary-brief">
@@ -237,11 +241,14 @@ function DiagnosisCard({ patient }) {
 function EpisodeMedicationCard({ patient }) {
   const medications = patient.medications || [];
   return <Card title="Medication records">
-    {medications.length ? <div className="fact-list">{medications.map((medication, index) => <article className="fact-row" key={`${medication.medication}-${index}`}>
-      <div className="fact-row-top"><strong>{medication.medication}</strong><StatusPill tone={String(medication.status).toLowerCase() === 'active' ? 'green' : 'neutral'}>{medication.status}</StatusPill></div>
+    {medications.length ? <div className="fact-list">{medications.map((medication, index) => {
+      const statuses = medicationStatuses(medication);
+      return <article className="fact-row" key={`${medication.medication}-${index}`}>
+        <div className="fact-row-top"><strong>{medication.medication}</strong><span className="fact-statuses">{statuses.length ? statuses.map((status) => <StatusPill key={status} tone={String(status).toLowerCase() === 'active' ? 'green' : 'neutral'}>{status}</StatusPill>) : <StatusPill>Not recorded</StatusPill>}</span></div>
       <span>{[medication.schedule, medication.scheduleType, medication.route].filter(Boolean).join(' · ') || 'Schedule / route not recorded'}</span>
       <small>{medication.startDate || 'Start not recorded'} → {medication.stopDate || 'Stop date not recorded'}</small>
-    </article>)}</div> : <Empty />}
+      </article>;
+    })}</div> : <Empty />}
   </Card>;
 }
 
@@ -285,6 +292,24 @@ function EpisodeView({ record, dfn }) {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
 
+  useEffect(() => {
+    const controller = new AbortController();
+    setAiSummary('');
+    setAiError('');
+    setAiLoading(true);
+    generateEpisodeSummary(dfn, patient.episodeId, controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) setAiSummary(result.summary);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) setAiError(error.message || 'AI summary could not be generated.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setAiLoading(false);
+      });
+    return () => controller.abort();
+  }, [dfn, patient.episodeId]);
+
   async function createAiSummary() {
     setAiLoading(true);
     setAiError('');
@@ -303,9 +328,11 @@ function EpisodeView({ record, dfn }) {
       <div><div className="eyebrow">{patient.episode?.visitType || 'Recorded'} episode · {patient.episodeId || patient.episode?.id || 'ID not recorded'}</div><h1>{episodeLabel(patient.episode)}</h1></div>
       <span className="episode-reference">Episode {patient.episodeId || patient.episode?.id || 'ID not recorded'}</span>
     </div>
-    <Card title="AI episode summary" action={<button type="button" onClick={createAiSummary} disabled={aiLoading}>{aiLoading ? 'Generating…' : aiSummary ? 'Regenerate' : 'Generate summary'}</button>}>
+    <Card title="AI episode summary" action={<button type="button" onClick={createAiSummary} disabled={aiLoading}>{aiLoading ? 'Generating…' : 'Regenerate'}</button>}>
       {aiError && <div className="error-banner" role="alert">{aiError}</div>}
-      {aiSummary ? <div className="ai-summary-text">{aiSummary.split('\n').map((line, index) => <p key={index}>{line || '\u00a0'}</p>)}</div> : <p className="empty-state">Generate the episode overview from the recorded clinical data.</p>}
+      {aiSummary
+        ? <div className="ai-summary-text">{aiSummary.split('\n').map((line, index) => <p key={index}>{line || '\u00a0'}</p>)}</div>
+        : <p className="empty-state">{aiLoading ? 'Generating this episode summary from its recorded data…' : 'AI summary unavailable. Recorded episode facts are shown below.'}</p>}
     </Card>
     {!aiSummary && <EpisodeReport patient={patient} />}
     <Card title="Vital-sign trends" eyebrow="Recorded measurements"><TrendCards readings={vitals} /></Card>
@@ -370,6 +397,7 @@ export default function App() {
       if (controller.signal.aborted) return;
       const episodes = patientShell.episodes || [];
       setShell(patientShell);
+      setSelectedEpisode(contextEpisodeId || patientShell.episodeId || OVERVIEW);
       if (!episodes.length) {
         setError('Patient found, but no episode records were returned for this DFN.');
         return;
@@ -392,6 +420,7 @@ export default function App() {
             results[index] = { episode, error: episodeError.message || 'Episode could not be loaded.' };
           } finally {
             completed += 1;
+            setRecords(results.filter(Boolean));
             setProgress({ done: completed, total: episodes.length });
           }
         }

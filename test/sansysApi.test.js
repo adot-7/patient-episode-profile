@@ -45,6 +45,25 @@ function sansysFixtureFetch(input, options = {}) {
     return jsonResponse({ success: true, status: 'No Allergy Assessment', data: [] });
   }
 
+  if (url.pathname === '/diagnosis/dash/list' && method === 'POST' && body.dfn === 'MIXED-PROFILE' && !body.visit_id) {
+    return jsonResponse({ success: true, data: {
+      default_visit: '1-2026',
+      visits: {
+        ipVisits: [
+          { id: '1-2026', name: '10 JAN, 2026 10:00 - IP WARD' },
+          { id: '1-2025', name: '02 JAN, 2025 10:00 - IP WARD' },
+        ],
+        opVisits: [{ id: '2-2026', name: '05 JAN, 2026 10:00 - OP CLINIC' }],
+      },
+    } });
+  }
+  if (url.pathname === '/patientHome/load-demographics/MIXED-PROFILE') {
+    return jsonResponse({ success: true, data: { lfname: 'Mixed', llname: 'Profile', lsex: 'Female', lage: '40' } });
+  }
+  if (url.pathname === '/allergies/dashboard-list/MIXED-PROFILE') {
+    return jsonResponse({ success: true, status: 'No Allergy Assessment', data: [] });
+  }
+
   if (url.pathname === '/diagnosis/dash/list' && method === 'POST' && !body.visit_id) {
     return jsonResponse({ success: true, data: {
       default_visit: '1-2025',
@@ -73,13 +92,19 @@ function sansysFixtureFetch(input, options = {}) {
       patient_objects: { medications: [{ medication_name: 'Note-only medication', status: 'ACTIVE', route: 'ORAL' }] },
     } });
   }
-  if (url.pathname === '/lab/list') return jsonResponse({ success: true, data: { orders: [{ itemOrdered: 'CBC', orderDateTime: '2025-01-12', status: { name: 'COMPLETED' } }] } });
+  if (url.pathname === '/lab/list') return jsonResponse({ success: true, data: { orders: [
+    { itemOrdered: 'CBC', orderDateTime: '2025-01-12', status: { name: 'COMPLETED' } },
+    { itemOrdered: 'Old CBC', orderDateTime: '2024-01-12', status: { name: 'COMPLETED' } },
+  ] } });
   if (url.pathname === '/rad/cpoe-list') return jsonResponse({ success: true, data: { orders: [] } });
   if (url.pathname.startsWith('/vitals/dash/load/')) return jsonResponse({ success: true, data: { vitals: [{ date_time: '2025-01-12 10:00', measurements: { 'BLOOD PRESSURE': { value: '124/78', unit: 'mmHg' }, PULSE: { value: '72' } } }], admissions: [] } });
   if (url.pathname === '/problems/dash-list') return jsonResponse({ success: true, data: { problems: [{ problem: 'Recorded problem', status: 'ACTIVE', dateOnset: '2020-01-01' }] } });
   if (url.pathname === '/diagnosis/dash/list' && body.visit_id) return jsonResponse({ success: true, data: { diagnoses: [{ diagnosis: 'Recorded diagnosis', isPrimary: true, type: 'Primary', dateEntered: '2025-01-12' }] } });
   if (url.pathname === '/chiefcomplaint/dash-list/TEST-PROFILE-1') return jsonResponse({ success: true, data: { complaints: [{ complaint_name: 'Headache', complaint_type: 'Chief Complaint', remark: 'Recorded complaint', date: '2025-01-12' }] } });
-  if (url.pathname === '/med/list') return jsonResponse({ success: true, data: { orders: [{ medication_name: 'Endpoint medication', status: 'ACTIVE', route: 'ORAL', start_date: '2025-01-12' }] } });
+  if (url.pathname === '/med/list') return jsonResponse({ success: true, data: { orders: [
+    { medication_name: 'Endpoint medication', status: 'ACTIVE', route: 'ORAL', start_date: '2025-01-12' },
+    { medication_name: 'Old medication', status: 'ACTIVE', route: 'ORAL', start_date: '2024-01-12' },
+  ] } });
   throw new Error(`Unexpected Sansys fixture request: ${method} ${url.pathname}`);
 }
 
@@ -110,6 +135,8 @@ test('profile API loads selected episode collections, notes, and source provenan
   assert.ok(response.body.medications.some((item) => item.medication === 'Note-only medication' && item.needsVerification));
   assert.equal(response.body.notes[0].content[0], 'Assessment: Recorded findings.');
   assert.equal(response.body.labOrders[0].name, 'CBC');
+  assert.ok(!response.body.labOrders.some((item) => item.name === 'Old CBC'));
+  assert.ok(!response.body.medications.some((item) => item.medication === 'Old medication'));
   assert.equal(response.body.vitals[0].measurements.find((item) => item.name === 'BLOOD PRESSURE').value, '124/78');
   assert.ok(response.body.diagnoses[0].provenance[0].endpoint.includes('/diagnosis/dash/list'));
   assert.ok(fetchCalls.some((call) => call === 'GET /clinical-notes/view/NOTE-1'));
@@ -129,6 +156,16 @@ test('profile API includes PAT123456 outpatient episodes when it has no inpatien
   assert.equal(response.body.episodeId, '2-2026');
   assert.deepEqual(response.body.episodes.map((episode) => episode.id), ['2-2026']);
   assert.equal(response.body.episodes[0].visitType, 'outpatient');
+});
+
+test('profile API keeps date windows separate for inpatient and outpatient episodes', async () => {
+  const response = await request(createApp()).get('/api/patients/MIXED-PROFILE/shell');
+  assert.equal(response.status, 200);
+  const inpatient = response.body.episodes.filter((episode) => episode.visitType === 'inpatient');
+  const outpatient = response.body.episodes.filter((episode) => episode.visitType === 'outpatient');
+  assert.equal(inpatient[0].dateTo, '');
+  assert.equal(inpatient[1].dateTo, '2026-01-09');
+  assert.equal(outpatient[0].dateTo, '');
 });
 
 test('profile API rejects writes and converts upstream failures to a clear 502', async () => {

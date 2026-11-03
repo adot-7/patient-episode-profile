@@ -148,6 +148,12 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
 .chart-axis-label, .chart-date-label { fill: #444; font: 9px "Segoe UI", Arial, sans-serif; }
 .chart-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: square; stroke-linejoin: miter; }
 .chart-point { stroke: #fff; stroke-width: 1; fill: var(--accent); }
+.chart-point-hit { fill: transparent; cursor: crosshair; outline: none; }
+.chart-point-hit:focus { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 2 2; }
+.chart-point-active { stroke-width: 2; }
+.chart-tooltip-box { fill: #202020; stroke: #fff; stroke-width: 1; }
+.chart-tooltip-value { fill: #fff; font: 700 10px "Segoe UI", Arial, sans-serif; }
+.chart-tooltip-meta { fill: #eee; font: 9px "Segoe UI", Arial, sans-serif; }
 
 .timeline-list { position: relative; display: flex; flex-direction: column; gap: 0; padding: 0 6px; }
 .timeline-list::before { position: absolute; top: 10px; bottom: 10px; left: 12px; border-left: 1px solid #aaa; content: ''; }
@@ -164,6 +170,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
 
 .fact-row { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 5px 2px; border-bottom: 1px solid #ddd; }
 .fact-row-top { width: 100%; display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; }
+.fact-statuses { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; }
 .fact-row strong { color: #222; font-size: 11px; font-weight: 600; line-height: 1.35; }
 .fact-row > span, .fact-row > small { color: #444; font-size: 9px; line-height: 1.35; }
 .fact-row > div:first-child > span:not(.pill) { display: block; margin-top: 2px; color: #555; font-size: 9px; }

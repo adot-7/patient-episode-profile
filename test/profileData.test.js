@@ -55,7 +55,7 @@ test('clinical summaries use only recorded diagnoses, complaints, and episode co
   const profile = buildPatientProfile(records);
   const summaryFacts = longitudinalSummary(records, profile);
   const summary = summaryFacts.map((item) => item.value).join(' ');
-  assert.match(summary, /1 inpatient episode/);
+  assert.match(summary, /1 recorded episode/);
   assert.match(summary, /Recorded condition/);
   assert.deepEqual(summaryFacts.map((item) => item.label), ['Episode history', 'Primary diagnoses', 'Other recorded conditions', 'Medication history']);
   const report = episodeReport(patient);

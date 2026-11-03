@@ -151,7 +151,7 @@ export function longitudinalSummary(records, profile) {
     String(left.patient?.episode?.startDate || '').localeCompare(String(right.patient?.episode?.startDate || ''))
   ));
   const valid = chronological.filter((record) => record.patient);
-  if (!valid.length) return [{ label: 'Episode history', value: 'No inpatient episode data is available to summarize.' }];
+  if (!valid.length) return [{ label: 'Episode history', value: 'No recorded episode data is available to summarize.' }];
 
   const dates = valid.map((record) => record.patient.episode?.startDate).filter(Boolean).sort();
   const span = dates.length
@@ -175,7 +175,7 @@ export function longitudinalSummary(records, profile) {
     : 'No medication records were returned for the loaded episodes.';
 
   return [
-    { label: 'Episode history', value: `${valid.length} inpatient episode${valid.length === 1 ? '' : 's'} · ${span}` },
+    { label: 'Episode history', value: `${valid.length} recorded episode${valid.length === 1 ? '' : 's'} · ${span}` },
     { label: 'Primary diagnoses', value: diagnosesText },
     { label: 'Other recorded conditions', value: conditionsText },
     { label: 'Medication history', value: medicationText },

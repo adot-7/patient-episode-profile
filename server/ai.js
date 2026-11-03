@@ -39,7 +39,7 @@ function promptFor(patient) {
   };
 
   return [
-    'Generate a concise factual clinical overview of this inpatient episode for a clinician, no more than 500 words.',
+    'Generate a concise factual clinical overview of this recorded episode for a clinician, no more than 500 words.',
     'Use only the recorded data below. Do not infer diagnoses, outcomes, improvement, causality, or treatment rationale.',
     'Organize the response under: Presentation, Hospital Course, Diagnoses and Problems, Key Medications, Investigations, and Follow-up / Open Items.',
     'Use no more than 3 short bullets per heading. Summarize medication courses and clinically important changes instead of listing every order.',
