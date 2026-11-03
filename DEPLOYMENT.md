@@ -2,6 +2,19 @@
 
 The service is packaged as a small Docker image. It binds to `127.0.0.1:3002` on the host by default so a reverse proxy can place it behind the EHR's existing access controls.
 
+## Render
+
+The repository includes `render.yaml`. Create the service from the Render Blueprint flow:
+
+```text
+https://dashboard.render.com/blueprint/new?repo=https://github.com/adot-7/patient-episode-profile
+```
+
+After selecting the repository, enter `BHARATCODE_API_KEY` as a secret environment
+variable. The Blueprint configures the Docker build, `/api/health` health check,
+Sansys base URL, and BharatCode model endpoint. Render then deploys commits pushed
+to `main` automatically.
+
 ## Docker Compose
 
 On the host that can reach Sansys:

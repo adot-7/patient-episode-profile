@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: patient-episode-profile
+    runtime: docker
+    plan: free
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    healthCheckPath: /api/health
+    envVars:
+      - key: SANSYS_BASE_URL
+        value: http://182.70.249.137:5050
+      - key: SANSYS_TIMEOUT_MS
+        value: "30000"
+      - key: BHARATCODE_MODEL
+        value: qwen-3.8-27b
+      - key: BHARATCODE_BASE_URL
+        value: https://bharatcode.ai/api/model/v1
+      - key: BHARATCODE_TIMEOUT_MS
+        value: "180000"
+      - key: BHARATCODE_API_KEY
+        sync: false
