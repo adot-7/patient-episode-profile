@@ -92,25 +92,33 @@ function addDays(value, amount) {
 
 function buildEpisodes(raw) {
   const data = dataOf(raw);
-  const visits = data?.visits?.ipVisits ?? raw?.visits?.ipVisits ?? [];
+  const visits = [
+    ['inpatient', data?.visits?.ipVisits ?? raw?.visits?.ipVisits ?? []],
+    ['outpatient', data?.visits?.opVisits ?? raw?.visits?.opVisits ?? []],
+  ];
   const episodes = new Map();
-  for (const visit of visits) {
-    const id = asText(visit?.id);
-    const label = asText(visit.name || visit.label || id);
-    if (!id || id === '0' || /^select\s+ip\s+visit$/i.test(label)) continue;
-    const admissionId = id.includes('-') ? id.slice(id.indexOf('-') + 1) : id;
-    episodes.set(id, {
-      id,
-      label,
-      startDate: parseEpisodeDate(label),
-      admissionId,
-      admissionIen: admissionId,
-    });
+  for (const [visitType, visitList] of visits) {
+    for (const visit of visitList) {
+      const id = asText(visit?.id);
+      const label = asText(visit.name || visit.label || id);
+      if (!id || id === '0' || /^select\s+(ip|op)\s+visit$/i.test(label)) continue;
+      const admissionId = id.includes('-') ? id.slice(id.indexOf('-') + 1) : id;
+      if (episodes.has(id)) continue;
+      episodes.set(id, {
+        id,
+        label,
+        visitType,
+        startDate: parseEpisodeDate(label),
+        admissionId,
+        admissionIen: admissionId,
+      });
+    }
   }
   const result = [...episodes.values()].sort((left, right) => right.startDate.localeCompare(left.startDate));
   result.forEach((episode, index) => {
     episode.dateFrom = episode.startDate;
-    episode.dateTo = index > 0 ? addDays(result[index - 1].startDate, -1) : '';
+    const boundary = index > 0 ? addDays(result[index - 1].startDate, -1) : '';
+    episode.dateTo = boundary && (!episode.startDate || boundary >= episode.startDate) ? boundary : '';
   });
   return result;
 }

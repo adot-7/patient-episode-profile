@@ -26,6 +26,25 @@ function sansysFixtureFetch(input, options = {}) {
     return jsonResponse({ success: true, status: 'No Allergy Assessment', data: [] });
   }
 
+  if (url.pathname === '/diagnosis/dash/list' && method === 'POST' && body.dfn === 'PAT123456' && !body.visit_id) {
+    return jsonResponse({ success: true, data: {
+      default_visit: '2-2026',
+      visits: {
+        ipVisits: [{ id: '0', name: 'Select IP Visit' }],
+        opVisits: [
+          { id: '0', name: 'Select OP Visit' },
+          { id: '2-2026', name: '04 FEB, 2026 10:00 - OUTPATIENT CLINIC' },
+        ],
+      },
+    } });
+  }
+  if (url.pathname === '/patientHome/load-demographics/PAT123456') {
+    return jsonResponse({ success: true, data: { lfname: 'Outpatient', llname: 'Profile', lsex: 'Female', lage: '40' } });
+  }
+  if (url.pathname === '/allergies/dashboard-list/PAT123456') {
+    return jsonResponse({ success: true, status: 'No Allergy Assessment', data: [] });
+  }
+
   if (url.pathname === '/diagnosis/dash/list' && method === 'POST' && !body.visit_id) {
     return jsonResponse({ success: true, data: {
       default_visit: '1-2025',
@@ -102,6 +121,14 @@ test('profile API honors an EHR-provided episode when discovery only has the pla
   assert.equal(response.body.episodeId, '1-7788');
   assert.deepEqual(response.body.episodes.map((episode) => episode.id), ['1-7788']);
   assert.equal(response.body.episodes[0].admissionId, '7788');
+});
+
+test('profile API includes PAT123456 outpatient episodes when it has no inpatient visits', async () => {
+  const response = await request(createApp()).get('/api/patients/PAT123456/shell');
+  assert.equal(response.status, 200);
+  assert.equal(response.body.episodeId, '2-2026');
+  assert.deepEqual(response.body.episodes.map((episode) => episode.id), ['2-2026']);
+  assert.equal(response.body.episodes[0].visitType, 'outpatient');
 });
 
 test('profile API rejects writes and converts upstream failures to a clear 502', async () => {

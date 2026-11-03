@@ -41,7 +41,7 @@ Container deployment files are included. See [DEPLOYMENT.md](./DEPLOYMENT.md) fo
 
 ## Clinical presentation
 
-- Use the side navigation to open the patient overview or any recorded inpatient episode.
+- Use the side navigation to open the patient overview or any recorded episode.
 - The first screen prioritizes the longitudinal summary, allergy record, episode timeline, vital trends, and grouped medication courses.
 - Episode pages put a concise episode brief and vitals before diagnoses, problems, medication records, and investigation orders.
 - Lab and radiology entries are labelled as orders; this feed does not provide result interpretation.
@@ -50,7 +50,7 @@ Container deployment files are included. See [DEPLOYMENT.md](./DEPLOYMENT.md) fo
 
 The application has its own read-only Sansys adapter and does not require the discharge-summary server.
 
-Open the app with `?dfn=<patient-id>` to prefill a patient from an EHR link, for example `?dfn=081070175`. Pass `&episodeId=<inpatient-episode-id>` when the EHR already knows the selected episode, for example `?dfn=081070175&episodeId=1-19337733`. The app does not contain a patient-specific default.
+Open the app with `?dfn=<patient-id>` to prefill a patient from an EHR link, for example `?dfn=081070175`. Pass `&episodeId=<episode-id>` when the EHR already knows the selected episode, for example `?dfn=081070175&episodeId=1-19337733`. The app does not contain a patient-specific default.
 
 ## AI episode summaries
 

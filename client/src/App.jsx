@@ -300,7 +300,7 @@ function EpisodeView({ record, dfn }) {
 
   return <div className="view-stack">
     <div className="view-title-row episode-title-row">
-      <div><div className="eyebrow">Inpatient episode · {patient.episodeId || patient.episode?.id || 'ID not recorded'}</div><h1>{episodeLabel(patient.episode)}</h1></div>
+      <div><div className="eyebrow">{patient.episode?.visitType || 'Recorded'} episode · {patient.episodeId || patient.episode?.id || 'ID not recorded'}</div><h1>{episodeLabel(patient.episode)}</h1></div>
       <span className="episode-reference">Episode {patient.episodeId || patient.episode?.id || 'ID not recorded'}</span>
     </div>
     <Card title="AI episode summary" action={<button type="button" onClick={createAiSummary} disabled={aiLoading}>{aiLoading ? 'Generating…' : aiSummary ? 'Regenerate' : 'Generate summary'}</button>}>
@@ -371,7 +371,7 @@ export default function App() {
       const episodes = patientShell.episodes || [];
       setShell(patientShell);
       if (!episodes.length) {
-        setError('Patient found, but no inpatient episode records were returned for this DFN.');
+        setError('Patient found, but no episode records were returned for this DFN.');
         return;
       }
       setProgress({ done: 0, total: episodes.length });
@@ -411,7 +411,7 @@ export default function App() {
 
   return <div className="app-shell">
     <header className="app-header">
-      <span className="app-title">IPD · PATIENT EPISODE PROFILE</span>
+      <span className="app-title">PATIENT EPISODE PROFILE</span>
     </header>
 
     <main className="page-frame" id="top">
@@ -436,7 +436,7 @@ export default function App() {
             <button type="button" className={`nav-item nav-overview ${selectedEpisode === OVERVIEW ? 'nav-selected' : ''}`} onClick={() => setSelectedEpisode(OVERVIEW)}>
               <span><strong>Patient overview</strong><small>Across all episodes</small></span>
             </button>
-            <div className="episode-nav-heading"><span>Inpatient episodes</span><span>{navigationEpisodes.length}</span></div>
+            <div className="episode-nav-heading"><span>Recorded episodes</span><span>{navigationEpisodes.length}</span></div>
             <div className="episode-nav-list">{navigationEpisodes.map((episode) => {
               const record = successfulRecords.find((item) => item.patient.episodeId === episode.id);
               const snapshot = record ? episodeSnapshot(record.patient) : null;

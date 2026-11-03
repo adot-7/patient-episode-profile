@@ -71,7 +71,7 @@ location /patient-profile/ {
 
 This makes the app available at `https://<existing-ehr-host>/patient-profile/`; its API is namespaced under `/patient-profile/api`, so it does not collide with the discharge-summary API. Keep the route behind the same authenticated ingress used by the EHR. Do not expose port 3002 directly to the public internet.
 
-When embedded from the EHR, pass both the patient DFN and current inpatient episode:
+When embedded from the EHR, pass both the patient DFN and current episode:
 `/patient-profile/?dfn=<dfn>&episodeId=<episode-id>`. The explicit episode ID is used even when the Sansys discovery response only returns the placeholder visit.
 
 ## Without Docker
