@@ -241,12 +241,41 @@ function mapMedication(item, source) {
   };
 }
 
+function mappedLabResults(item, source) {
+  const collection = item.results ?? item.labResults ?? item.lab_results ?? item.observations ?? item.resultItems;
+  const rawResults = Array.isArray(collection) ? collection : collection && typeof collection === 'object' ? [collection] : [];
+  const single = item.resultValue ?? item.result_value ?? item.observedValue ?? item.observed_value ?? item.result;
+  if (single !== undefined && single !== null && typeof single !== 'object' && !rawResults.length) rawResults.push({ value: single });
+
+  return rawResults.map((result, index) => {
+    const value = typeof result === 'object' && result !== null
+      ? result.value ?? result.resultValue ?? result.result_value ?? result.observedValue ?? result.observed_value ?? result.result ?? result.text
+      : result;
+    const name = clean(result?.name ?? result?.testName ?? result?.test_name ?? result?.itemOrdered ?? item.itemOrdered ?? item.lab_name ?? item.name);
+    if (value === undefined || value === null || typeof value === 'object' || !clean(value)) return null;
+    return {
+      name,
+      value: asText(value),
+      unit: asText(result?.unit ?? result?.units ?? item.resultUnit ?? item.result_unit),
+      referenceRange: asText(result?.referenceRange ?? result?.reference_range ?? result?.normalRange ?? result?.normal_range),
+      flag: asText(result?.flag ?? result?.abnormalFlag ?? result?.abnormal_flag),
+      dateTime: dateValue(result?.dateTime ?? result?.date_time ?? result?.resultDateTime ?? item.resultDateTime ?? item.result_date_time ?? item.reportedAt ?? item.reported_at),
+      provenance: [{ ...source, path: `${source.path}.results[${index}]` }],
+    };
+  }).filter(Boolean);
+}
+
 function mapLab(item, source) {
+  const results = mappedLabResults(item, source);
   return {
     name: clean(item.itemOrdered ?? item.lab_name ?? item.name),
     section: asText(item.section),
     orderDateTime: dateValue(item.orderDateTime ?? item.entry_datetime),
+    resultDateTime: dateValue(item.resultDateTime ?? item.result_date_time ?? item.reportedAt ?? item.reported_at),
     status: asText(item.status?.name ?? item.status ?? ''),
+    sample: asText(item.sample),
+    isResultAvailable: item.isResult === true || item.isResult === 1 || ['true', '1', 'yes', 'y'].includes(asText(item.isResult).toLowerCase()),
+    results,
     provenance: [source],
   };
 }
@@ -307,10 +336,11 @@ function compactPatientObjects(objects = {}) {
   )));
 }
 
-function mapNote(note, detail) {
+function mapNote(note, detail, episode) {
   const detailData = dataOf(detail);
   return {
     noteIen: asText(note.note_ien),
+    episodeId: episode?.id || '',
     title: asText(note.note_title),
     dateOfEntry: asText(note.date_of_entry),
     status: asText(note.status_name),
@@ -322,7 +352,7 @@ function mapNote(note, detail) {
   };
 }
 
-async function fetchNotes(dfn, episode) {
+async function fetchNotes(dfn, episode, detailLimit = DEFAULT_NOTE_DETAIL_LIMIT) {
   const rawNotes = [];
   let fetchedCount = 0;
   let offset = 0;
@@ -347,7 +377,7 @@ async function fetchNotes(dfn, episode) {
     offset += page.length;
   }
 
-  const detailIndexes = noteDetailIndexes(rawNotes.length, DEFAULT_NOTE_DETAIL_LIMIT);
+  const detailIndexes = noteDetailIndexes(rawNotes.length, detailLimit);
   const details = Array(rawNotes.length).fill(null);
   for (let index = 0; index < detailIndexes.length; index += 8) {
     const batchIndexes = detailIndexes.slice(index, index + 8);
@@ -363,7 +393,39 @@ async function fetchNotes(dfn, episode) {
     for (const result of batch) details[result.index] = result.detail;
   }
 
-  return rawNotes.map((note, index) => mapNote(note, details[index]));
+  return rawNotes.map((note, index) => mapNote(note, details[index], episode));
+}
+
+function extractBackgroundHistory(notes) {
+  const entries = [];
+  const seen = new Set();
+  for (const note of notes || []) {
+    for (const line of note.content || []) {
+      const text = clean(line);
+      const separator = text.indexOf(':');
+      const label = (separator > 0 ? text.slice(0, separator) : text).trim();
+      const answer = separator > 0 ? text.slice(separator + 1).trim() : '';
+      const family = /^(family history|family medical history|family history of .+)$/i.test(label);
+      const social = /^(social history|smoking history|smoking|smoker|tobacco use|alcohol use|alcohol|substance use|drug use|occupation|living situation)$/i.test(label);
+      if (!family && !social) continue;
+      const value = answer;
+      if (!value) continue;
+      const item = {
+        category: family ? 'Family history' : 'Social history',
+        label: family ? 'Family history' : label,
+        value,
+        date: note.dateOfEntry || '',
+        noteTitle: note.title || 'Clinical note',
+        episodeId: note.episodeId || '',
+        needsVerification: true,
+      };
+      const key = JSON.stringify(item);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entries.push(item);
+    }
+  }
+  return entries;
 }
 
 function noteDetailIndexes(total, limit) {
@@ -404,6 +466,10 @@ function mergeFacts(endpointFacts, noteFacts, type) {
     result[index] = {
       ...fact,
       ...existing,
+      ...(type === 'labOrders' ? {
+        results: [...new Map([...(existing.results || []), ...(fact.results || [])].map((result) => [JSON.stringify(result), result])).values()],
+        isResultAvailable: Boolean(existing.isResultAvailable || fact.isResultAvailable),
+      } : {}),
       provenance: uniqueSources,
       needsVerification: uniqueSources.some((source) => source.sourceType === 'clinical-note')
         && !uniqueSources.some((source) => source.sourceType === 'sansys-endpoint'),
@@ -539,7 +605,8 @@ async function fetchVitals(dfn, episode) {
 export async function fetchEpisodePatient(dfn, requestedEpisodeId, options = {}) {
   dfn = clean(dfn);
   const includeNoteDetails = options.includeNoteDetails !== false;
-  const cacheKey = `episode:${dfn}:${requestedEpisodeId}:${includeNoteDetails ? 'details' : 'index'}`;
+  const noteDetailLimit = Math.max(0, Math.min(48, Number(options.noteDetailLimit) || DEFAULT_NOTE_DETAIL_LIMIT));
+  const cacheKey = `episode:${dfn}:${requestedEpisodeId}:${includeNoteDetails ? `details-${noteDetailLimit}` : 'index'}`;
   const cached = readCache(patientCache, cacheKey);
   if (cached) return structuredClone(cached);
   const shell = await fetchPatientShell(dfn, requestedEpisodeId);
@@ -547,7 +614,7 @@ export async function fetchEpisodePatient(dfn, requestedEpisodeId, options = {})
   if (!episode) throw new SansysError(`Episode ${requestedEpisodeId || '(empty)'} was not found for this patient.`, 404);
 
   const [notes, labsRaw, radRaw, vitalsRaw, problemsRaw, diagnosisRaw, complaintsRaw, medicationsRaw] = await Promise.all([
-    includeNoteDetails ? fetchNotes(dfn, episode) : fetchNoteIndex(dfn, episode),
+    includeNoteDetails ? fetchNotes(dfn, episode, noteDetailLimit) : fetchNoteIndex(dfn, episode),
     requestJson('POST', '/lab/list', { dfn, status: '0', visit_id: episode.id, from_date: '', to_date: '' }),
     requestJson('POST', '/rad/cpoe-list', { dfn, status: '0', visit_id: episode.id, from_date: '', to_date: '' }),
     fetchVitals(dfn, episode),
@@ -565,14 +632,17 @@ export async function fetchEpisodePatient(dfn, requestedEpisodeId, options = {})
     .filter((item) => inEpisodeWindow(item.date, episode));
   const endpointMedications = mapEndpointList(medicationsRaw, 'orders', '/med/list', episode, mapMedication, (item) => item.medication_ien)
     .filter((item) => inEpisodeWindow(item.startDate || item.stopDate, episode));
-  const endpointLabs = mapEndpointList(labsRaw, 'orders', '/lab/list', episode, mapLab, (item) => item.order_ien)
+  const endpointLabs = mapEndpointList(labsRaw, 'orders', '/lab/list', episode, mapLab, (item) => item.orderIen ?? item.order_ien)
     .filter((item) => inEpisodeWindow(item.orderDateTime, episode));
   const endpointRadiology = mapEndpointList(radRaw, 'orders', '/rad/cpoe-list', episode, mapRadiology, (item) => item.order_ien)
     .filter((item) => inEpisodeWindow(item.dateTime, episode));
   const episodeVitals = normalizeVitals(vitalsRaw, episode)
     .filter((item) => inEpisodeWindow(item.dateTime, episode));
   const diagnoses = mergeFacts(endpointDiagnoses, noteFacts.diagnoses, 'diagnoses').sort((left, right) => Number(right.isPrimary) - Number(left.isPrimary));
-  const problems = mergeFacts(endpointProblems, noteFacts.problems, 'problems');
+  const problems = mergeFacts(endpointProblems, noteFacts.problems, 'problems').filter((problem) => {
+    const onset = parseLooseDate(problem.dateOnset);
+    return !episode.dateTo || !onset || onset <= episode.dateTo;
+  });
   const complaints = mergeFacts(endpointComplaints, noteFacts.complaints, 'complaints');
   const medications = mergeFacts(endpointMedications, noteFacts.medications, 'medications');
   const patient = {
@@ -580,6 +650,7 @@ export async function fetchEpisodePatient(dfn, requestedEpisodeId, options = {})
     episodeId: episode.id,
     episode,
     notes,
+    backgroundHistory: extractBackgroundHistory(notes),
     diagnoses,
     problems,
     complaints,
@@ -621,7 +692,7 @@ async function fetchNoteIndex(dfn, episode) {
     if ((total === undefined || total === null) && page.length < PAGE_SIZE) break;
     offset += page.length;
   }
-  return rawNotes.map((note) => mapNote(note));
+  return rawNotes.map((note) => mapNote(note, null, episode));
 }
 
 export async function checkSansysConnection() {

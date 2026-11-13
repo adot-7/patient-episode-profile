@@ -19,17 +19,17 @@ export function fetchPatientShell(dfn, signal, episodeId) {
 }
 
 export function fetchEpisode(dfn, episodeId, signal) {
-  const query = new URLSearchParams({ episodeId, includeNoteDetails: 'false' });
+  const query = new URLSearchParams({ episodeId, includeNoteDetails: 'true' });
   return get(`/patients/${encodeURIComponent(dfn)}?${query}`, signal);
 }
 
-export async function generateEpisodeSummary(dfn, episodeId, signal) {
+export async function generateEpisodeSummary(dfn, episodeId, signal, regenerate = false) {
   let response;
   try {
     response = await fetch(`${API_BASE}/patients/${encodeURIComponent(dfn)}/episode-summary`, {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ episodeId }),
+      body: JSON.stringify({ episodeId, regenerate }),
       signal,
     });
   } catch (error) {
@@ -38,5 +38,23 @@ export async function generateEpisodeSummary(dfn, episodeId, signal) {
   }
   const body = await response.json().catch(() => null);
   if (!response.ok) throw new Error(body?.error || `AI summary service returned ${response.status}.`);
+  return body;
+}
+
+export async function generateLongitudinalSummary(dfn, episodeIds, signal, regenerate = false) {
+  let response;
+  try {
+    response = await fetch(`${API_BASE}/patients/${encodeURIComponent(dfn)}/longitudinal-summary`, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ episodeIds, regenerate }),
+      signal,
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error;
+    throw new Error('Cannot reach the AI longitudinal summary service.');
+  }
+  const body = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(body?.error || `AI longitudinal summary service returned ${response.status}.`);
   return body;
 }

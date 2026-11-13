@@ -1,6 +1,45 @@
 const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 const keyOf = (...values) => values.map((value) => clean(value).toLocaleLowerCase()).join('|');
 
+function dateSortValue(value) {
+  const text = clean(value).replace(/\s*@\s*/, ' ');
+  const time = Date.parse(text);
+  return Number.isNaN(time) ? null : time;
+}
+
+export function compareDateValues(left, right) {
+  const leftTime = dateSortValue(left);
+  const rightTime = dateSortValue(right);
+  if (leftTime !== null && rightTime !== null) return leftTime - rightTime;
+  if (leftTime !== null) return -1;
+  if (rightTime !== null) return 1;
+  return clean(left).localeCompare(clean(right));
+}
+
+export function chartPositions(points) {
+  const times = points.map((point) => dateSortValue(point.dateTime));
+  const valid = times.every((time) => time !== null);
+  const span = valid && points.length ? times.at(-1) - times[0] : 0;
+  if (valid && span > 0) return times.map((time) => (time - times[0]) / span);
+  return points.map((_, index) => points.length === 1 || (valid && span === 0) ? 0.5 : index / (points.length - 1));
+}
+
+export function chartLabelIndices(positions, plotWidth, gap = 60) {
+  if (!positions.length) return [];
+  const selected = [0];
+  for (let index = 1; index < positions.length - 1; index += 1) {
+    if ((positions[index] - positions[selected.at(-1)]) * plotWidth >= gap && (positions.at(-1) - positions[index]) * plotWidth >= gap) selected.push(index);
+  }
+  if (positions.length > 1 && (positions.at(-1) - positions[selected.at(-1)]) * plotWidth >= gap) selected.push(positions.length - 1);
+  return selected;
+}
+
+export function shortTimestamp(value) {
+  const time = dateSortValue(value);
+  if (time === null) return clean(value) || 'Date not recorded';
+  return new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric', ...(/\d{1,2}:\d{2}/.test(String(value)) ? { hour: '2-digit', minute: '2-digit', hour12: false } : {}) }).format(new Date(time));
+}
+
 function sortedUnique(values) {
   return [...new Set(values.map(clean).filter(Boolean))];
 }
@@ -18,6 +57,7 @@ export function buildPatientProfile(episodeRecords) {
   const medications = new Map();
   const allergies = new Map();
   const vitalReadings = [];
+  const labReadings = [];
 
   for (const record of episodeRecords || []) {
     const patient = record?.patient;
@@ -101,6 +141,26 @@ export function buildPatientProfile(episodeRecords) {
         }
       }
     }
+
+    for (const order of patient.labOrders || []) {
+      for (const result of order.results || []) {
+        const rawValue = clean(result.value).replace(/,/g, '');
+        const match = rawValue.match(/^[-+]?\d+(?:\.\d+)?$/);
+        if (!match) continue;
+        const value = Number(match[0]);
+        if (!Number.isFinite(value) || !result.dateTime || dateSortValue(result.dateTime) === null) continue;
+        labReadings.push({
+          name: clean(result.name || order.name),
+          value,
+          displayValue: clean(result.value),
+          unit: clean(result.unit),
+          referenceRange: clean(result.referenceRange),
+          flag: clean(result.flag),
+          dateTime: result.dateTime,
+          episodeId,
+        });
+      }
+    }
   }
 
   return {
@@ -114,12 +174,13 @@ export function buildPatientProfile(episodeRecords) {
       ...item,
       schedules: sortedUnique(item.schedules),
       statuses: sortedUnique(item.statuses),
-      starts: sortedUnique(item.starts).sort(),
-      stops: sortedUnique(item.stops).sort(),
+      starts: sortedUnique(item.starts).sort(compareDateValues),
+      stops: sortedUnique(item.stops).sort(compareDateValues),
       episodes: item.episodes.sort((a, b) => String(a.date).localeCompare(String(b.date))),
     })).sort((a, b) => a.name.localeCompare(b.name)),
     allergies: [...allergies.values()],
-    vitalReadings: vitalReadings.sort((a, b) => String(a.dateTime).localeCompare(String(b.dateTime))),
+    vitalReadings: vitalReadings.sort((a, b) => compareDateValues(a.dateTime, b.dateTime)),
+    labReadings: [...new Map(labReadings.map((reading) => [keyOf(reading.episodeId, reading.name, reading.dateTime, reading.value, reading.unit), reading])).values()].sort((a, b) => compareDateValues(a.dateTime, b.dateTime)),
   };
 }
 
@@ -255,6 +316,22 @@ function investigationLines(items, labelKey, dateKey) {
   return lines;
 }
 
+function labInvestigationLines(items) {
+  return (items || []).flatMap((order) => {
+    const name = clean(order.name);
+    if (!name) return [];
+    const results = (order.results || []).map((result) => [
+      result.dateTime || order.resultDateTime || 'Result date not recorded',
+      `Result: ${clean(result.name || name)} ${clean(result.value)}${result.unit ? ` ${clean(result.unit)}` : ''}`,
+      result.referenceRange ? `reference ${clean(result.referenceRange)}` : '',
+      result.flag ? `flag ${clean(result.flag)}` : '',
+    ].filter(Boolean).join(' · '));
+    if (results.length) return results;
+    const orderLine = [order.orderDateTime, name, clean(order.status)].filter(Boolean).join(' · ');
+    return orderLine ? [order.isResultAvailable ? `${orderLine} · result values not included in the Sansys response` : orderLine] : [];
+  }).slice(0, 12);
+}
+
 function latestVitalLine(patient) {
   const vital = patient?.vitals?.at(-1);
   const values = (vital?.measurements || [])
@@ -290,7 +367,7 @@ function episodeCourseLines(patient) {
     const name = clean(medication.medication);
     if (!name) continue;
     const status = clean(medication.status);
-    if (medication.startDate) add(medication.startDate, `Medication started: ${name}${status ? ` (${status})` : ''}`);
+    if (medication.startDate) add(medication.startDate, `Medication order start date: ${name}${status ? ` (${status})` : ''}`);
     if (medication.stopDate) add(medication.stopDate, `Medication stop date: ${name}${status ? ` (${status})` : ''}`);
   }
   for (const order of patient?.labOrders || []) {
@@ -373,7 +450,7 @@ export function episodeReport(patient) {
 
   const course = episodeCourseLines(patient);
   const medications = episodeMedicationLines(patient?.medications);
-  const labLines = investigationLines(patient?.labOrders, 'name', 'orderDateTime');
+  const labLines = labInvestigationLines(patient?.labOrders);
   const radiologyLines = investigationLines(patient?.radOrders, 'procedure', 'dateTime');
   const investigations = [
     ...labLines.map((line) => `Laboratory: ${line}`),
@@ -397,10 +474,20 @@ export function shortDate(value) {
   const isoDate = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
   const date = isoDate
     ? new Date(Number(isoDate[1]), Number(isoDate[2]) - 1, Number(isoDate[3]))
-    : new Date(value);
+    : new Date(String(value).replace(/\s*@\s*/, ' '));
   return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric' }).format(date);
 }
 
 export function metricSeries(readings, metric) {
-  return (readings || []).filter((reading) => reading.name === metric);
+  return (readings || [])
+    .filter((reading) => reading.name === metric)
+    .slice()
+    .sort((left, right) => compareDateValues(left.dateTime, right.dateTime));
+}
+
+export function labSeries(readings, testName) {
+  return (readings || [])
+    .filter((reading) => reading.name === testName)
+    .slice()
+    .sort((left, right) => compareDateValues(left.dateTime, right.dateTime));
 }

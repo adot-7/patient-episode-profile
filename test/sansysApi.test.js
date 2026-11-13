@@ -88,12 +88,13 @@ function sansysFixtureFetch(input, options = {}) {
   }
   if (url.pathname === '/clinical-notes/view/NOTE-1') {
     return jsonResponse({ success: true, data: {
-      content: [{ questions: [{ question: 'Assessment', answer: 'Recorded findings.' }] }],
+      content: [{ questions: [{ question: 'Assessment', answer: 'Recorded findings.' }, { question: 'Smoking history', answer: 'Former smoker' }, { question: 'Family history', answer: 'Father: hypertension' }, { question: 'Alcohol', answer: '' }] }],
       patient_objects: { medications: [{ medication_name: 'Note-only medication', status: 'ACTIVE', route: 'ORAL' }] },
     } });
   }
   if (url.pathname === '/lab/list') return jsonResponse({ success: true, data: { orders: [
-    { itemOrdered: 'CBC', orderDateTime: '2025-01-12', status: { name: 'COMPLETED' } },
+    { orderIen: 'LAB-1', itemOrdered: 'CBC', orderDateTime: '2025-01-12', status: { name: 'COMPLETED' }, isResult: true, results: [{ name: 'Platelets', value: '80', unit: '10^9/L', dateTime: '2025-01-12 14:00', referenceRange: '150–450', flag: 'LOW' }] },
+    { itemOrdered: 'Result-marked order without values', orderDateTime: '2025-01-13', isResult: true },
     { itemOrdered: 'Old CBC', orderDateTime: '2024-01-12', status: { name: 'COMPLETED' } },
   ] } });
   if (url.pathname === '/rad/cpoe-list') return jsonResponse({ success: true, data: { orders: [] } });
@@ -135,6 +136,15 @@ test('profile API loads selected episode collections, notes, and source provenan
   assert.ok(response.body.medications.some((item) => item.medication === 'Note-only medication' && item.needsVerification));
   assert.equal(response.body.notes[0].content[0], 'Assessment: Recorded findings.');
   assert.equal(response.body.labOrders[0].name, 'CBC');
+  assert.equal(response.body.labOrders[0].results[0].value, '80');
+  assert.equal(response.body.labOrders[0].results[0].dateTime, '2025-01-12 14:00');
+  assert.equal(response.body.labOrders[0].provenance[0].recordId, 'LAB-1');
+  assert.equal(response.body.labOrders[1].isResultAvailable, true);
+  assert.deepEqual(response.body.labOrders[1].results, []);
+  assert.equal(response.body.backgroundHistory[0].value, 'Former smoker');
+  assert.equal(response.body.backgroundHistory[1].category, 'Family history');
+  assert.equal(response.body.backgroundHistory.length, 2);
+  assert.equal(response.body.backgroundHistory[0].date, '12 JAN 2025');
   assert.ok(!response.body.labOrders.some((item) => item.name === 'Old CBC'));
   assert.ok(!response.body.medications.some((item) => item.medication === 'Old medication'));
   assert.equal(response.body.vitals[0].measurements.find((item) => item.name === 'BLOOD PRESSURE').value, '124/78');
@@ -168,6 +178,21 @@ test('profile API keeps date windows separate for inpatient and outpatient episo
   assert.equal(outpatient[0].dateTo, '');
 });
 
+test('closed historical episodes retain pre-existing problems but exclude later onset dates', async () => {
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/clinical-notes/list') return jsonResponse({ success: true, total_records: 0, data: [] });
+    if (url.pathname === '/problems/dash-list') return jsonResponse({ success: true, data: { problems: [
+      { problem: 'Pre-existing problem', status: 'ACTIVE', dateOnset: '2020-01-01' },
+      { problem: 'Later problem', status: 'ACTIVE', dateOnset: '2026-09-28' },
+    ] } });
+    return sansysFixtureFetch(input, options);
+  };
+  const response = await request(createApp()).get('/api/patients/TEST-PROFILE-1?episodeId=1-2024&includeNoteDetails=false');
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.problems.map((problem) => problem.problem), ['Pre-existing problem']);
+});
+
 test('profile API rejects writes and converts upstream failures to a clear 502', async () => {
   const write = await request(createApp()).post('/api/patients/TEST-PROFILE-1').send({});
   assert.equal(write.status, 405);
@@ -189,5 +214,32 @@ test('profile API supports deployment beneath an EHR URL prefix', async () => {
   } finally {
     if (previous === undefined) delete process.env.APP_BASE_PATH;
     else process.env.APP_BASE_PATH = previous;
+  }
+});
+
+test('longitudinal endpoint fetches selected server-side episodes and reports coverage', async () => {
+  const originalKey = process.env.BHARATCODE_API_KEY;
+  process.env.BHARATCODE_API_KEY = 'fixture-key';
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes('/chat/completions')) {
+      const body = JSON.parse(options.body);
+      assert.match(body.messages[1].content, /Overall clinical story/);
+      assert.match(body.messages[1].content, /Former smoker/);
+      assert.match(body.messages[1].content, /Platelets/);
+      const sections = ['Overall clinical story', 'Dated clinical timeline', 'Condition and investigation trends', 'Medication course', 'Recorded background', 'Monitoring considerations'].map((title, index) => ({ title, items: [index === 0 ? 'Dated recorded story.' : 'Not recorded in supplied records.'] }));
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify({ sections }) } }] });
+    }
+    return sansysFixtureFetch(url, options);
+  };
+  try {
+    const response = await request(createApp()).post('/api/patients/TEST-PROFILE-1/longitudinal-summary').send({ episodeIds: ['1-2025'] });
+    assert.equal(response.status, 200);
+    assert.match(response.body.summary, /Dated recorded story/);
+    assert.equal(response.body.coverage.summarizedEpisodes, 1);
+    assert.equal(response.body.backgroundHistory[0].value, 'Former smoker');
+    assert.deepEqual(response.body.coverage.failedEpisodes, []);
+  } finally {
+    if (originalKey === undefined) delete process.env.BHARATCODE_API_KEY;
+    else process.env.BHARATCODE_API_KEY = originalKey;
   }
 });

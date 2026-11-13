@@ -9,15 +9,19 @@ services:
     autoDeploy: true
     healthCheckPath: /api/health
     envVars:
+      - key: AI_PROVIDER
+        value: gemini
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_LOCAL_FALLBACK
+        value: "false"
+      - key: GEMINI_FACTS_FALLBACK
+        value: "true"
+      - key: AI_CACHE_MS
+        value: "300000"
       - key: SANSYS_BASE_URL
         value: http://182.70.249.137:5050
       - key: SANSYS_TIMEOUT_MS
         value: "30000"
-      - key: BHARATCODE_MODEL
-        value: qwen-3.8-27b
-      - key: BHARATCODE_BASE_URL
-        value: https://bharatcode.ai/api/model/v1
-      - key: BHARATCODE_TIMEOUT_MS
-        value: "180000"
-      - key: BHARATCODE_API_KEY
-        sync: false

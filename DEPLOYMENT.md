@@ -10,10 +10,13 @@ The repository includes `render.yaml`. Create the service from the Render Bluepr
 https://dashboard.render.com/blueprint/new?repo=https://github.com/adot-7/patient-episode-profile
 ```
 
-After selecting the repository, enter `BHARATCODE_API_KEY` as a secret environment
-variable. The Blueprint configures the Docker build, `/api/health` health check,
-Sansys base URL, and BharatCode model endpoint. Render then deploys commits pushed
-to `main` automatically.
+After selecting the repository, enter `GEMINI_API_KEY` as a secret environment
+variable. The Blueprint selects Gemini Flash-Lite and enables labelled,
+source-derived facts when Gemini is unavailable or rejected by source checks.
+It disables laptop-local Ollama fallback because the Render service cannot reach
+the developer machine's loopback interface. No paid provider is used as a fallback.
+Render then deploys commits pushed to `main` automatically. `/api/health` includes
+the selected provider and `RENDER_GIT_COMMIT` revision for release verification.
 
 ## Docker Compose
 
@@ -89,6 +92,8 @@ For a persistent host service, run `node server/index.js` with the repo as its w
 
 ## Runtime settings
 
+Local Ollama requires a reachable, separately running Ollama instance with the configured model installed. For Docker, `127.0.0.1` refers to the app container, not the host: set `OLLAMA_BASE_URL` to an Ollama service URL reachable from the container. Render's small app service does not include a 7B local model; use a configured Gemini/cloud provider or a separately hosted inference service there.
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `3002` | Container/service listen port |
@@ -96,5 +101,25 @@ For a persistent host service, run `node server/index.js` with the repo as its w
 | `SANSYS_BASE_URL` | `http://182.70.249.137:5050` | Sansys read API base URL |
 | `SANSYS_HEALTH_DFN` | empty | Optional known DFN used by the Sansys connectivity probe |
 | `SANSYS_TIMEOUT_MS` | `30000` | Per-request Sansys timeout |
+| `AI_PROVIDER` | `auto` in code; `gemini` on Render; `ollama` in local example | `ollama`, `gemini`, `bharatcode`, `anthropic`, or legacy `auto` fallback |
+| `AI_CACHE_MS` | `300000` | In-memory successful-summary cache TTL; `0` disables caching |
+| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Reachable local inference service |
+| `OLLAMA_MODEL` | `qwen2.5:7b` | Installed local model |
+| `OLLAMA_TIMEOUT_MS` | `300000` | Local generation timeout after a job starts |
+| `OLLAMA_NUM_CTX` | `16384` | Local context window |
+| `GEMINI_API_KEY` | empty | Server-only Gemini key; required in Gemini mode |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Configurable Gemini model; free-tier eligibility depends on Google project |
+| `GEMINI_REASONING_EFFORT` | model-dependent | `minimal` for Flash-Lite, otherwise `low`; leave empty for defaults |
+| `GEMINI_LOCAL_FALLBACK` | `false` | Use labelled local evidence if Gemini is unavailable or fails source checks; requires reachable Ollama |
+| `GEMINI_FACTS_FALLBACK` | `true` in deployment examples | Serve labelled source-derived facts without AI generation when Gemini/local inference is unavailable |
+| `GEMINI_TIMEOUT_MS` | `60000` | Gemini generation timeout |
+| `BHARATCODE_API_KEY` | empty | Primary AI provider key; server-only |
+| `BHARATCODE_MODEL` | `qwen-3.8-27b` | Primary BharatCode model |
+| `BHARATCODE_BASE_URL` | `https://bharatcode.ai/api/model/v1` | Primary AI provider URL |
+| `BHARATCODE_TIMEOUT_MS` | `180000` | Primary AI request timeout |
+| `ANTHROPIC_API_KEY` | empty | Fallback AI provider key; server-only |
+| `ANTHROPIC_MODEL` | `claude-haiku-4-5-20251001` | Fallback model; keep this on Haiku |
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Anthropic API URL |
+| `ANTHROPIC_TIMEOUT_MS` | `60000` | Fallback AI request timeout |
 | `PROFILE_BIND_ADDRESS` | `127.0.0.1` | Host address published by Compose |
 | `PROFILE_HOST_PORT` | `3002` | Host-side port published by Compose |

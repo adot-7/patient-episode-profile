@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildPatientProfile, episodeReport, episodeSnapshot, longitudinalSummary, metricSeries } from '../client/src/profileData.js';
+import { buildPatientProfile, episodeReport, episodeSnapshot, longitudinalSummary, metricSeries, chartPositions, chartLabelIndices, shortDate, shortTimestamp } from '../client/src/profileData.js';
 
 test('longitudinal profile merges repeated conditions and medication courses while retaining episodes', () => {
   const profile = buildPatientProfile([
@@ -25,6 +25,55 @@ test('longitudinal profile merges repeated conditions and medication courses whi
   assert.deepEqual(profile.medications[0].statuses, ['ACTIVE', 'DISCONTINUED']);
   assert.equal(metricSeries(profile.vitalReadings, 'Systolic blood pressure').length, 2);
   assert.equal(metricSeries(profile.vitalReadings, 'Diastolic blood pressure')[1].value, 85);
+});
+
+test('vital metric series sorts Sansys day-month timestamps chronologically', () => {
+  const profile = buildPatientProfile([{ patient: {
+    episodeId: '2-3',
+    vitals: [
+      { dateTime: '23 Mar 2026 @ 21:24', measurements: [{ name: 'PULSE', value: '90' }] },
+      { dateTime: '02 Jul 2026 @ 20:00', measurements: [{ name: 'PULSE', value: '80' }] },
+    ],
+  } }]);
+
+  assert.deepEqual(metricSeries(profile.vitalReadings, 'Pulse').map((reading) => reading.value), [90, 80]);
+});
+
+test('chart positions reflect elapsed time and retain complete Sansys dates/times', () => {
+  const positions = chartPositions([{ dateTime: '23 Mar 2026 @ 21:24' }, { dateTime: '02 Jul 2026 @ 20:00' }, { dateTime: '16 Jul 2026 @ 17:43' }]);
+  assert.equal(positions[0], 0);
+  assert.equal(positions[2], 1);
+  assert.ok(positions[1] > 0.8, 'July must not be plotted halfway between March and July');
+  assert.match(shortDate('16 Jul 2026 @ 17:43'), /2026/);
+  assert.match(shortTimestamp('16 Jul 2026 @ 17:43'), /17:43/);
+  assert.equal(shortTimestamp('not supplied'), 'not supplied');
+});
+
+test('nearby measurements do not produce overlapping x-axis date labels', () => {
+  assert.deepEqual(chartLabelIndices([0, 0.5, 0.51, 1], 450), [0, 1, 3]);
+  assert.deepEqual(chartLabelIndices([0.5, 0.5], 450), [0]);
+});
+
+test('laboratory trends use dated numerical results, not order dates or inequality values', () => {
+  const profile = buildPatientProfile([{ patient: {
+    episodeId: '1-1',
+    labOrders: [{ name: 'CBC', orderDateTime: '2025-01-01', results: [
+      { name: 'Platelets', value: '80,000', unit: '/uL', dateTime: '2025-01-03 10:00' },
+      { name: 'Platelets', value: '60,000', unit: '/uL', dateTime: '2025-01-02 10:00' },
+      { name: 'Platelets', value: '<10', unit: '/uL', dateTime: '2025-01-04' },
+      { name: 'Platelets', value: '90,000', unit: '/uL' },
+    ] }],
+  } }]);
+  assert.deepEqual(profile.labReadings.map((result) => result.value), [60000, 80000]);
+  assert.deepEqual(profile.labReadings.map((result) => result.dateTime), ['2025-01-02 10:00', '2025-01-03 10:00']);
+  assert.ok(profile.labReadings.every((result) => result.episodeId === '1-1'));
+});
+
+test('recorded episode facts do not use an order date as an undated result timestamp', () => {
+  const report = episodeReport({ labOrders: [{ name: 'CBC', orderDateTime: '2026-07-01 09:00', results: [{ name: 'Platelets', value: '80000', unit: '/uL' }] }] });
+  const investigations = report.find((section) => section.key === 'investigations').lines.join(' ');
+  assert.match(investigations, /Result date not recorded/);
+  assert.doesNotMatch(investigations, /2026-07-01 09:00/);
 });
 
 test('episode snapshot counts recorded material and does not synthesize missing facts', () => {
@@ -82,7 +131,7 @@ test('episode report organizes recorded presentation, note course, medications, 
   assert.match(sections['Diagnoses and problems'], /Recorded diagnosis.*Recorded comorbidity/);
   assert.match(sections['Course and dated events'], /Assessment: Documented episode progression/);
   assert.match(sections['Course and dated events'], /Lab order: Recorded test/);
-  assert.match(sections['Course and dated events'], /Medication started: Recorded medicine/);
+  assert.match(sections['Course and dated events'], /Medication order start date: Recorded medicine/);
   assert.match(sections['Treatment \/ medication course'], /Recorded medicine.*ACTIVE/);
   assert.match(sections.Investigations, /Recorded test.*Recorded imaging/);
   assert.match(sections['Latest observations'], /PULSE 72/);

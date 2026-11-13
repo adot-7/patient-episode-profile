@@ -83,9 +83,11 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
 .episode-nav-item.nav-selected .nav-timeline-mark::before { border-color: var(--accent); background: var(--accent-bg); }
 .episode-nav-item:last-child .nav-timeline-mark::after { display: none; }
 .nav-error { color: var(--danger) !important; }
-.profile-content { min-width: 0; padding: 8px 10px 18px; background: #fff; }
+.ai-nav-status { color: var(--accent) !important; }
+.profile-content { min-width: 0; overflow-x: hidden; padding: 8px 10px 18px; background: #fff; }
 .view-stack { display: flex; flex-direction: column; gap: 8px; }
 .view-title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 35px; padding: 0 0 5px; border-bottom: 1px solid var(--border); }
+.view-title-row > div:first-child { min-width: 0; }
 .view-title-row .eyebrow { font-size: 9px; }
 .view-title-row h1 { margin: 1px 0; font-size: 17px; }
 .view-title-row p { margin: 0; font-size: 10px; }
@@ -94,9 +96,11 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
 .span-two { grid-column: 1 / -1; }
 .card { min-width: 0; overflow: hidden; padding: 0; border: 1px solid var(--border); background: #fff; }
 .card-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 5px 7px; border-bottom: 1px solid var(--border); background: var(--header); }
+.card-header > div:first-child { min-width: 0; }
 .card-header .eyebrow { display: inline; margin: 0 7px 0 0; color: var(--muted); font-size: 8px; letter-spacing: .05em; }
 .card-header h2 { display: inline; margin: 0; color: #222; font-size: 13px; font-weight: 700; }
 .card-action { color: var(--muted); font-size: 10px; }
+.card-action { flex: none; }
 .card-action button { padding: 3px 8px; border: 1px solid var(--accent); color: #fff; background: var(--accent); font-size: 10px; font-weight: 700; }
 .card-action button:hover:not(:disabled) { background: #174a70; }
 .card-action button:disabled { cursor: wait; opacity: .65; }
@@ -143,6 +147,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
 .vital-chart figcaption { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; margin: 0 1px 2px; }
 .vital-chart figcaption strong { color: #222; font-size: 10px; font-weight: 700; }
 .vital-chart figcaption span { color: #555; font-size: 9px; }
+.chart-latest { margin: 3px 1px; color: #444; font-size: 11px; line-height: 1.4; }
 .vital-chart svg { display: block; width: 100%; height: auto; overflow: visible; }
 .chart-grid { stroke: #ddd; stroke-width: 1; }
 .chart-axis-label, .chart-date-label { fill: #444; font: 9px "Segoe UI", Arial, sans-serif; }
@@ -182,7 +187,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
 .clean-list > li > p { margin: 2px 0; color: #333; font-size: 10px; line-height: 1.35; }
 .clean-list > li > small { color: #555; font-size: 9px; }
 
-.episode-reference { padding: 2px 5px; border: 1px solid var(--border); color: #444; font-size: 9px; }
+.episode-reference { flex: none; padding: 2px 5px; border: 1px solid var(--border); color: #444; font-size: 9px; white-space: nowrap; }
 .episode-report { border: 1px solid var(--border-dark); background: #fff; }
 .episode-report-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 8px; border-bottom: 1px solid var(--border); background: var(--header); }
 .episode-report-header h2 { margin: 0; color: #222; font-size: 13px; font-weight: 700; }
@@ -218,9 +223,32 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
 .note-content p { margin: 0 0 4px; color: #222; font-size: 10px; line-height: 1.4; white-space: pre-wrap; }
 .note-content p:last-child { margin-bottom: 0; }
 .note-index-count { margin: 5px 7px 7px; color: #444; font-size: 10px; }
-.ai-summary-text { margin: 0 7px 7px; padding: 8px; border-left: 3px solid var(--accent); background: #f7fafc; }
-.ai-summary-text p { margin: 0 0 5px; color: #1c1c1c; font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
-.ai-summary-text p:last-child { margin-bottom: 0; }
+.ai-summary-text { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; min-width: 0; max-width: 100%; margin: 0 7px 7px; padding: 8px; overflow-wrap: anywhere; background: #f7fafc; }
+.ai-summary-section { min-width: 0; padding: 10px 12px; border: 1px solid #d5dce2; border-left: 3px solid var(--accent); background: #fff; }
+.summary-overall-clinical-story, .summary-dated-clinical-timeline, .summary-monitoring-considerations { grid-column: 1 / -1; }
+.ai-summary-section h3 { margin: 0 0 3px; color: #2b4c65; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.ai-summary-section ul { margin: 0; padding-left: 17px; }
+.ai-summary-section li { margin: 2px 0; color: #1c1c1c; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.ai-summary-section li + li { margin-top: 7px; }
+.coverage-note { margin: 7px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.background-category { padding: 8px 0; }
+.background-category h3 { margin: 0 0 4px; font-size: 12px; }
+.background-category ul { margin: 0; padding-left: 18px; }
+.background-category li { margin: 5px 0; overflow-wrap: anywhere; }
+.background-category small { display: block; margin-top: 3px; color: var(--muted); }
+.medication-course-grid { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.medication-course-grid .fact-row { min-width: 0; padding: 8px; border: 1px solid var(--border); overflow-wrap: anywhere; }
+.medication-dates { display: grid; gap: 3px; margin: 3px 0 0; font-size: 11px; }
+.medication-dates > div { display: flex; gap: 8px; }
+.medication-dates dt { min-width: 30px; color: var(--muted); }
+.medication-dates dd { margin: 0; }
+.focus-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.focus-picker select { max-width: 100%; padding: 3px; border: 1px solid var(--border); background: #fff; color: var(--text); font: inherit; }
+.lab-trend-chart { min-width: 0; margin: 0; padding: 8px; border: 1px solid var(--border); }
+.lab-trend-chart figcaption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px; font-size: 11px; }
+.lab-trend-chart svg { display: block; width: 100%; height: auto; }
+.lab-chart-line { fill: none; stroke: #28785d; stroke-width: 2; }
+.lab-chart-point { fill: #28785d; stroke: #fff; stroke-width: 1; }
 
 .provenance-appendix { margin-top: 10px; border: 1px solid var(--border-dark); background: #fff; }
 .provenance-appendix > summary { padding: 5px 8px; border-bottom: 1px solid var(--border); color: #333; background: var(--header); cursor: pointer; font-size: 10px; font-weight: 700; }
@@ -246,6 +274,8 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
 .welcome-card p { max-width: 700px; margin: 3px 0; color: #333; font-size: 12px; line-height: 1.45; }
 
 @media (max-width: 900px) {
+  .ai-summary-text, .medication-course-grid { grid-template-columns: 1fr; }
+  .card-header { flex-wrap: wrap; }
   .profile-layout { grid-template-columns: 220px minmax(0, 1fr); }
   .overview-brief-grid { grid-template-columns: 1fr; }
   .clinical-summary-brief dl > div { grid-template-columns: 115px minmax(0, 1fr); }
