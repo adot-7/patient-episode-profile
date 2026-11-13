@@ -76,6 +76,16 @@ test('recorded episode facts do not use an order date as an undated result times
   assert.doesNotMatch(investigations, /2026-07-01 09:00/);
 });
 
+test('latest recorded observations are selected chronologically rather than by source-array order', () => {
+  const report = episodeReport({ vitals: [
+    { dateTime: '02 Jul 2026 @ 20:00', measurements: [{ name: 'PULSE', value: '90' }] },
+    { dateTime: '23 Mar 2026 @ 21:24', measurements: [{ name: 'PULSE', value: '70' }] },
+  ] });
+  const latest = report.find((section) => section.key === 'observations').lines.join(' ');
+  assert.match(latest, /PULSE 90/);
+  assert.doesNotMatch(latest, /PULSE 70/);
+});
+
 test('episode snapshot counts recorded material and does not synthesize missing facts', () => {
   const snapshot = episodeSnapshot({ diagnoses: [], complaints: [], notes: [], medications: [], labOrders: [], radOrders: [] });
   assert.deepEqual(snapshot, {

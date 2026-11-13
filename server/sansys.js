@@ -89,6 +89,11 @@ function parseLooseDate(value) {
     .replace(/,/g, '')
     .replace(/\bSEPT\b/gi, 'SEP');
   if (!text || /^(invalid date|n\/?a|null|undefined)$/i.test(text)) return '';
+  const iso = text.match(/^(\d{4}-\d{2}-\d{2})(?:$|[ T])/);
+  if (iso) {
+    const time = Date.parse(`${iso[1]}T00:00:00Z`);
+    return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === iso[1] ? iso[1] : '';
+  }
   const date = new Date(`${text} UTC`);
   return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
 }
@@ -133,7 +138,7 @@ function buildEpisodes(raw) {
   const result = [...episodes.values()].sort((left, right) => right.startDate.localeCompare(left.startDate));
   result.forEach((episode, index) => {
     episode.dateFrom = episode.startDate;
-    const previousSameType = result.slice(0, index).find((candidate) => candidate.visitType === episode.visitType && candidate.startDate);
+    const previousSameType = result.slice(0, index).findLast((candidate) => candidate.visitType === episode.visitType && candidate.startDate);
     const boundary = previousSameType ? addDays(previousSameType.startDate, -1) : '';
     episode.dateTo = boundary && (!episode.startDate || boundary >= episode.startDate) ? boundary : '';
   });

@@ -178,6 +178,39 @@ test('profile API keeps date windows separate for inpatient and outpatient episo
   assert.equal(outpatient[0].dateTo, '');
 });
 
+test('three same-type visits end at the nearest next visit, not the newest visit', async () => {
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/diagnosis/dash/list') return jsonResponse({ data: { visits: { opVisits: [
+      { id: '2-new', name: '02 NOV 2026 10:00 - OP' },
+      { id: '2-mid', name: '10 JUN 2026 10:00 - OP' },
+      { id: '2-old', name: '23 MAR 2026 10:00 - OP' },
+    ] } } });
+    if (url.pathname.startsWith('/patientHome/')) return jsonResponse({ data: {} });
+    if (url.pathname.startsWith('/allergies/')) return jsonResponse({ data: [] });
+    throw new Error('Unexpected source request');
+  };
+  const response = await request(createApp()).get('/api/patients/THREE-SAME-TYPE/shell');
+  assert.equal(response.status, 200);
+  assert.equal(response.body.episodes.find((episode) => episode.id === '2-old').dateTo, '2026-06-09');
+  assert.equal(response.body.episodes.find((episode) => episode.id === '2-mid').dateTo, '2026-11-01');
+});
+
+test('ISO timestamps do not bypass closed-episode date filtering', async () => {
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/clinical-notes/list') return jsonResponse({ data: [], total_records: 0 });
+    if (url.pathname === '/lab/list') return jsonResponse({ data: { orders: [
+      { itemOrdered: 'Within window', orderDateTime: '2024-06-01T10:00:00Z' },
+      { itemOrdered: 'After window', orderDateTime: '2025-01-12T10:00:00Z' },
+    ] } });
+    return sansysFixtureFetch(input, options);
+  };
+  const response = await request(createApp()).get('/api/patients/TEST-PROFILE-1?episodeId=1-2024');
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.labOrders.map((item) => item.name), ['Within window']);
+});
+
 test('closed historical episodes retain pre-existing problems but exclude later onset dates', async () => {
   globalThis.fetch = async (input, options = {}) => {
     const url = new URL(String(input));

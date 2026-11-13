@@ -333,7 +333,7 @@ function labInvestigationLines(items) {
 }
 
 function latestVitalLine(patient) {
-  const vital = patient?.vitals?.at(-1);
+  const vital = [...(patient?.vitals || [])].filter((item) => dateSortValue(item.dateTime) !== null).sort((left, right) => compareDateValues(left.dateTime, right.dateTime)).at(-1) || patient?.vitals?.at(-1);
   const values = (vital?.measurements || [])
     .map((measurement) => `${clean(measurement.name)} ${clean(measurement.value)}${measurement.unit ? ` ${clean(measurement.unit)}` : ''}`)
     .filter(Boolean);
