@@ -1,3 +1,5 @@
+import { isVitalMeasurementOrder, recordedVitals } from '../shared/vitals.js';
+
 const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 
 function dated(value) {
@@ -68,7 +70,7 @@ export function buildLocalEvidence(patients, headings) {
     for (const item of evenly(patient.medications || [], 12)) {
       add(patient, item.startDate, `Medication order: ${item.medication} · ${item.schedule || 'schedule not supplied'} · ${item.status || 'status not supplied'}${item.stopDate ? ` · stop date ${item.stopDate}` : ''}. Administration not established.`, [medications, course], 'medication');
     }
-    const labs = [...(patient.labOrders || [])].sort((left, right) => Number(Boolean(right.results?.length)) - Number(Boolean(left.results?.length)));
+    const labs = (patient.labOrders || []).filter((order) => !isVitalMeasurementOrder(order)).sort((left, right) => Number(Boolean(right.results?.length)) - Number(Boolean(left.results?.length)));
     for (const order of labs.slice(0, 12)) {
       if (!order.results?.length) {
         add(patient, order.orderDateTime, `Laboratory order: ${order.name} · ${order.status || 'status not supplied'} · result values not supplied.`, [investigations, course]);
@@ -83,9 +85,10 @@ export function buildLocalEvidence(patients, headings) {
         if (result.flag) add(patient, result.dateTime, `For clinician review: recorded ${result.name || order.name} ${result.value} ${result.unit || ''} · source flag ${result.flag}. This is a historical result.`, [monitoring]);
       }
     }
-    for (const item of evenly(patient.vitals || [], 10)) {
-      const values = (item.measurements || []).map((measurement) => `${measurement.name}: ${measurement.value}${measurement.unit ? ` ${measurement.unit}` : ''}`).join('; ');
-      if (values) add(patient, item.dateTime, `Recorded measurements: ${values}`, [investigations, course]);
+    for (const item of evenly(recordedVitals(patient), 10)) {
+      for (const measurement of item.measurements || []) {
+        if (clean(measurement.value)) add(patient, item.dateTime, `Recorded vital parameter: ${measurement.name}: ${measurement.value}${measurement.unit ? ` ${measurement.unit}` : ''}`, [course], 'vital');
+      }
     }
     for (const note of (patient.notes || []).slice(0, 8)) {
       for (const line of (note.content || []).filter((line) => /^(assessment|progress|course|plan|treatment|discharge|follow[- ]?up|history of present illness|chief complaint)\s*:/i.test(line)).slice(0, 3)) {

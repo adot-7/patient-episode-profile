@@ -1,3 +1,5 @@
+import { isVitalMeasurementOrder, recordedVitals, mentionsVitalParameters } from '../shared/vitals.js';
+
 const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -31,9 +33,9 @@ export function sourceClaimIssues(sections, patients) {
   const problems = patients.flatMap((patient) => patient.problems || []);
   const medications = patients.flatMap((patient) => patient.medications || []);
   const notesPresent = patients.some((patient) => patient.notes?.some((note) => note.content?.length));
-  const resultsPresent = patients.some((patient) => patient.labOrders?.some((order) => order.results?.length));
+  const resultsPresent = patients.some((patient) => patient.labOrders?.some((order) => !isVitalMeasurementOrder(order) && order.results?.length));
   const primaryPresent = patients.some((patient) => patient.diagnoses?.some((item) => item.isPrimary));
-  const vitalDates = new Set(patients.flatMap((patient) => patient.vitals || []).map((vital) => sourceDate(vital.dateTime)).filter(Boolean));
+  const vitalDates = new Set(patients.flatMap(recordedVitals).map((vital) => sourceDate(vital.dateTime)).filter(Boolean));
   const remarks = new Map();
   for (const complaint of patients.flatMap((patient) => patient.complaints || [])) {
     const remark = clean(complaint.remark).replace(/^patient (?:looks|is|has had|reports)\s*/i, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
@@ -42,7 +44,7 @@ export function sourceClaimIssues(sections, patients) {
     if (!remarks.has(remark)) remarks.set(remark, new Set());
     remarks.get(remark).add(date);
   }
-  const pressureValues = new Set(patients.flatMap((patient) => patient.vitals || []).flatMap((vital) => vital.measurements || [])
+  const pressureValues = new Set(patients.flatMap(recordedVitals).flatMap((vital) => vital.measurements || [])
     .filter((measurement) => /blood pressure|\bbp\b/i.test(measurement.name || ''))
     .map((measurement) => clean(measurement.value)));
   const eventDates = new Set(patients.flatMap((patient) => [
@@ -72,6 +74,7 @@ export function sourceClaimIssues(sections, patients) {
   }
   for (const section of sections) {
     for (const item of section.items) {
+      if (['Investigations', 'Condition and investigation trends'].includes(section.title) && mentionsVitalParameters(item)) issues.push('Vital parameters must be kept out of investigations. Use the dedicated Vital parameters block; laboratory and imaging investigations stay separate.');
       if (!notesPresent && !primaryPresent && /\bprimary diagnosis\s*(?:is|was|:)/i.test(item) && !/no primary|not recorded|not marked/i.test(item)) issues.push('No primary diagnosis is marked in the supplied episode sources. Do not promote a problem-list entry into a primary diagnosis.');
       if (!notesPresent && !resultsPresent && ['Investigations', 'Condition and investigation trends'].includes(section.title)
         && /\b(?:platelets?|haemoglobin|hemoglobin|HbA1c|creatinine|sodium|potassium|glucose|TSH|bilirubin|urea|WBC)\s*(?:was|were|is|of|at|:|=)?\s*\d/i.test(item)) issues.push('No laboratory result values are supplied; do not invent a numerical lab result from an order.');
@@ -90,7 +93,7 @@ export function sourceClaimIssues(sections, patients) {
       }
       const dates = datesFromText(item);
       const vitalsAbsent = /\bno\b.*\bvital|\bvitals? (?:are |were )?not\b/i.test(item);
-      if (!vitalsAbsent && dates.length && /\bvitals?|vital signs|recorded measurements\b/i.test(item) && dates.some((date) => !vitalDates.has(date))) issues.push('The cited date range for vital observations includes a date with no supplied vital measurement; do not use laboratory/radiology order dates as vital dates.');
+      if (!vitalsAbsent && !/\borders?\b/i.test(item) && dates.length && mentionsVitalParameters(item) && dates.some((date) => !vitalDates.has(date))) issues.push('The cited date range for vital observations includes a date with no supplied vital measurement; do not use laboratory/radiology order dates as vital dates.');
       const compactItem = item.replace(/[^a-z0-9]/gi, '').toLowerCase();
       for (const [remark, recordedDates] of remarks) {
         if (dates.length && compactItem.includes(remark) && !dates.some((date) => recordedDates.has(date))) issues.push('A complaint remark is assigned to the wrong date; keep each dated complaint and its own remark together.');
@@ -119,7 +122,7 @@ export function sourceClaimIssues(sections, patients) {
 
 export function sourceAvailability(patients) {
   const ranges = new Map();
-  for (const patient of patients) for (const vital of patient.vitals || []) for (const measurement of vital.measurements || []) {
+  for (const patient of patients) for (const vital of recordedVitals(patient)) for (const measurement of vital.measurements || []) {
     const raw = clean(measurement.value);
     const bp = /blood pressure|\bbp\b/i.test(measurement.name || '') && raw.match(/^(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/);
     const values = bp ? [['Systolic blood pressure', Number(bp[1]), 'mmHg'], ['Diastolic blood pressure', Number(bp[2]), 'mmHg']]
@@ -134,7 +137,7 @@ export function sourceAvailability(patients) {
     }
   }
   return {
-    episodes: patients.map((patient) => ({ episodeId: patient.episodeId || patient.episode?.id, visitType: patient.episode?.visitType, episodeStartDate: patient.episode?.startDate, primaryDiagnoses: (patient.diagnoses || []).filter((item) => item.isPrimary).map((item) => item.diagnosis), complaintCount: patient.complaints?.length || 0, noteCount: patient.notes?.filter((note) => note.content?.length).length || 0, labResultValueCount: (patient.labOrders || []).reduce((sum, order) => sum + (order.results?.length || 0), 0), observedVitalDateRange: [...new Set((patient.vitals || []).map((vital) => sourceDate(vital.dateTime)).filter(Boolean))].sort().filter((_, index, array) => index === 0 || index === array.length - 1) })),
+    episodes: patients.map((patient) => ({ episodeId: patient.episodeId || patient.episode?.id, visitType: patient.episode?.visitType, episodeStartDate: patient.episode?.startDate, primaryDiagnoses: (patient.diagnoses || []).filter((item) => item.isPrimary).map((item) => item.diagnosis), complaintCount: patient.complaints?.length || 0, noteCount: patient.notes?.filter((note) => note.content?.length).length || 0, labResultValueCount: (patient.labOrders || []).filter((order) => !isVitalMeasurementOrder(order)).reduce((sum, order) => sum + (order.results?.length || 0), 0), observedVitalDateRange: [...new Set(recordedVitals(patient).map((vital) => sourceDate(vital.dateTime)).filter(Boolean))].sort().filter((_, index, array) => index === 0 || index === array.length - 1) })),
     problemDateMeaning: 'dateOnset is an onset date only. The date when a listed status became ACTIVE/INACTIVE/REMOVED is not supplied. Conflicting snapshots are not a documented status transition.',
     primaryDiagnosisMeaning: 'An empty primaryDiagnoses list means no primary diagnosis is marked. Do not promote a problem-list entry or medication indication into a primary diagnosis.',
     medicationDateMeaning: 'Use each medication order startDate/stopDate and its own status. An episode start date is not the date of every medication in that episode. Administration is not established by these orders.',

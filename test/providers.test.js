@@ -232,3 +232,24 @@ test('hosted facts remain available if an optional local inference service canno
   };
   assert.equal((await generateEpisodeSummary(patient)).provider, 'recorded');
 });
+
+test('Gemini keeps vital parameters out of investigation inputs and corrects a misclassified response', async () => {
+  process.env.AI_PROVIDER = 'gemini';
+  process.env.GEMINI_API_KEY = 'fixture-google-key';
+  const source = { ...patient, labOrders: [{ name: 'Pulse', orderDateTime: '2026-07-01' }, { name: 'CBC', orderDateTime: '2026-07-01' }], vitals: [{ dateTime: '2026-07-01', measurements: [{ name: 'BLOOD PRESSURE', value: '120/80', unit: 'mmHg' }, { name: 'PULSE', value: '80', unit: '/min' }] }] };
+  let calls = 0;
+  globalThis.fetch = async (_url, options) => {
+    calls += 1;
+    const body = JSON.parse(options.body);
+    if (calls === 1) {
+      const input = JSON.parse(body.messages[1].content.split('\n\n').at(-1));
+      assert.deepEqual(input.labOrders.map((order) => order.name), ['CBC']);
+      assert.equal(input.vitals[0].measurements.length, 2);
+    } else assert.match(body.messages[1].content, /Vital parameters must be kept out of investigations/);
+    const content = { sections: Object.fromEntries(headings.map((title) => [title, { item1: title === 'Investigations' ? calls === 1 ? '2026-07-01: BP 120/80 mmHg; pulse 80/min.' : '2026-07-01: CBC ordered; result values not supplied.' : 'Not recorded in supplied records.', item2: '' }])) };
+    return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(content) } }] }) };
+  };
+  const result = await generateEpisodeSummary(source);
+  assert.equal(calls, 2);
+  assert.doesNotMatch(result.sections.find((section) => section.title === 'Investigations').items.join(' '), /BP|pulse/i);
+});

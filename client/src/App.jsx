@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchEpisode, fetchPatientShell, generateEpisodeSummary, generateLongitudinalSummary } from './api.js';
-import { buildPatientProfile, episodeReport, episodeSnapshot, shortDate, compareDateValues } from './profileData.js';
+import { buildPatientProfile, episodeReport, episodeSnapshot, shortDate, shortTimestamp, compareDateValues } from './profileData.js';
 import VitalsChart from './VitalsChart.jsx';
 import LabTrendChart from './LabTrendChart.jsx';
+import { isVitalMeasurementOrder, vitalParameterRows } from '../../shared/vitals.js';
 
 const OVERVIEW = '__overview__';
 
@@ -136,8 +137,21 @@ function TrendCards({ readings, emptyMessage = 'No numeric vital trends are avai
   return <div className="vitals-grid">{present.map((metric) => <VitalsChart key={metric} readings={readings} metric={metric} />)}</div>;
 }
 
+function VitalParameters({ records }) {
+  const rows = vitalParameterRows(records);
+  const orders = records.flatMap(({ patient }) => (patient.labOrders || []).filter(isVitalMeasurementOrder).map((order) => ({ ...order, episodeId: patient.episodeId })));
+  return <Card title="Vital parameters" eyebrow="Recorded measurements · separate from investigations">
+    <p className="coverage-note">Latest recorded value per parameter. Each row retains its own measurement timestamp.</p>
+    {rows.length ? <dl className="vital-parameter-list">{rows.map((row) => <div className="vital-parameter-row" key={`${row.name.toLowerCase()}-${row.unit}`}>
+      <dt>{row.name}</dt>
+      <dd><strong>{row.value}{row.unit ? ` ${row.unit}` : ' (unit not supplied)'}</strong><span>{row.dateTime ? shortTimestamp(row.dateTime) : 'Date not recorded'}{row.episodeId ? ` · episode ${row.episodeId}` : ''}</span></dd>
+    </div>)}</dl> : <Empty>No measured vital parameters are recorded in these episode records.</Empty>}
+    {orders.length > 0 && <details className="vital-measurement-orders"><summary>Vital measurement orders · {orders.length}</summary><p className="coverage-note">These are orders, not confirmed measurements. They are kept separate from laboratory and imaging investigations.</p><ul className="clean-list">{orders.map((order, index) => <li key={`${order.episodeId}-${index}`}><strong>{order.name}</strong><span>{order.status || 'Status not supplied'} · {order.orderDateTime || 'Order date not supplied'} · episode {order.episodeId}</span></li>)}</ul></details>}
+  </Card>;
+}
+
 function EpisodeReport({ patient }) {
-  const sections = episodeReport(patient);
+  const sections = episodeReport(patient).filter((section) => section.key !== 'observations');
   return <section className="episode-report">
     <header className="episode-report-header"><h2>Recorded episode facts</h2><span>{patient.episode?.startDate ? shortDate(patient.episode.startDate) : patient.episodeId}</span></header>
     <div className="episode-report-grid">{sections.map((section) => <section className={`report-section report-${section.key}`} key={section.title}>
@@ -186,6 +200,7 @@ function PatientOverview({ shell, records, profile, failedRecords, onEpisode, lo
       {longitudinal.summary ? <AiSummary summary={longitudinal.summary} exclude={['monitoring considerations', 'recorded background']} /> : <Empty>{synthesizing ? 'Connecting the clinical story across dated episode records…' : longitudinal.status === 'error' ? 'The longitudinal synthesis is unavailable. Dated source records remain available below.' : 'The AI longitudinal synthesis will appear after episode records finish loading.'}</Empty>}
       {longitudinal.coverage && <p className="coverage-note">Covered {longitudinal.coverage.summarizedEpisodes} of {longitudinal.coverage.requestedEpisodes} selected episodes. {longitudinal.coverage.failedEpisodes?.length > 0 ? `${longitudinal.coverage.failedEpisodes.length} episodes could not be loaded. ` : ''}{longitudinal.coverage.truncated ? 'Coverage is limited to the selected episodes (maximum 30 per synthesis). ' : ''}Note detail and prompt inputs are bounded; source records remain available below.</p>}
     </Card>
+    <VitalParameters records={records} />
     <div className="overview-brief-grid">
       <Card title="Personal, social & family history" eyebrow="Recorded background">
         {['Social history', 'Family history'].map((category) => <section className="background-category" key={category}>
@@ -293,7 +308,7 @@ function OrderCard({ title, items, labelKey, dateKey }) {
 function LabResults({ records }) {
   const [focus, setFocus] = useState('all');
   const profile = buildPatientProfile(records);
-  const orders = records.flatMap(({ patient }) => (patient.labOrders || []).map((order) => ({ ...order, episodeId: patient.episodeId })));
+  const orders = records.flatMap(({ patient }) => (patient.labOrders || []).filter((order) => !isVitalMeasurementOrder(order)).map((order) => ({ ...order, episodeId: patient.episodeId })));
   const results = orders.flatMap((order) => (order.results || []).map((result) => ({ ...result, name: result.name || order.name, episodeId: order.episodeId, orderDateTime: order.orderDateTime })));
   const patterns = { dengue: /platelet|hematocrit|haematocrit|wbc|white blood|haemoglobin|hemoglobin/i, diabetes: /glucose|blood sugar|hba1c|creatinine|ketone/i, renal: /creatinine|urea|egfr|potassium|sodium/i, liver: /bilirubin|ast|alt|albumin|inr/i };
   const pattern = patterns[focus];
@@ -411,6 +426,7 @@ function EpisodeView({ record, dfn, aiState, onRegenerate }) {
         : <p className="empty-state">{aiLoading ? 'Generating this episode summary from its recorded data…' : 'AI summary unavailable. Recorded episode facts are shown below.'}</p>}
     </Card>
     {!aiSummary && <EpisodeReport patient={patient} />}
+    <VitalParameters records={[record]} />
     <LabResults records={[record]} />
     <EpisodeMedicationCard patient={patient} />
      <Card title="Vital-sign trends" eyebrow="Recorded measurements"><TrendCards readings={vitals} emptyMessage="No numeric vital measurements are recorded within this episode's date range. Measurements from other episodes are excluded." /></Card>
@@ -423,7 +439,7 @@ function EpisodeView({ record, dfn, aiState, onRegenerate }) {
           {snapshot.complaints.length ? <ul className="clean-list">{(patient.complaints || []).map((complaint, index) => <li key={`${complaint.name}-${index}`}><strong>{complaint.name}</strong>{complaint.type && <span>{complaint.type}</span>}{complaint.remark && <p>{complaint.remark}</p>}{complaint.date && <small>{complaint.date}</small>}</li>)}</ul> : <Empty />}
         </Card>
         <EpisodeMedicationCard patient={patient} />
-      <OrderCard title="Laboratory orders" items={patient.labOrders} labelKey="name" dateKey="orderDateTime" />
+      <OrderCard title="Laboratory orders" items={(patient.labOrders || []).filter((order) => !isVitalMeasurementOrder(order))} labelKey="name" dateKey="orderDateTime" />
       <OrderCard title="Radiology orders" items={patient.radOrders} labelKey="procedure" dateKey="dateTime" />
       </div>
       <NotesCard notes={patient.notes} />

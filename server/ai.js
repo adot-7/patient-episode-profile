@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { buildLocalEvidence, recordedEvidenceSummary } from './localEvidence.js';
 import { validateSourceClaims, sourceAvailability } from './sourceChecks.js';
+import { isVitalMeasurementOrder, recordedVitals } from '../shared/vitals.js';
 
 const MODEL = process.env.BHARATCODE_MODEL || process.env.OPENAI_MODEL || 'qwen-3.8-27b';
 const BASE_URL = (process.env.BHARATCODE_BASE_URL || process.env.OPENAI_BASE_URL || 'https://bharatcode.ai/api/model/v1').replace(/\/$/, '');
@@ -63,6 +64,8 @@ function outputInstructions(headings) {
     'Keep ACTIVE, INACTIVE and REMOVED problem snapshots distinct. Copy exact condition names: never turn a short ambiguous label into a specific diagnosis. Always label a problem date as "onset"; never write "active since", "reactivated", or "problem list updated" based on onset dates.',
     'Every named drug in Medication course must have its own recorded order date and status. Do not group different drug dates under an episode date. A PENDING or UNRELEASED order is not current treatment or administration.',
     'Use the computed observedNumericVitalRanges if describing a range. Do not label measurements normal/abnormal, stable/unstable, or improved unless source notes explicitly do so. Missing history means undocumented, not negative.',
+    'Vital parameters are displayed in a dedicated recorded Vital parameters block, one parameter per line. Never put vital signs, physiological measurements, or their ranges under Investigations or Condition and investigation trends. Those sections cover laboratory and imaging orders/results and condition history only.',
+    'If a vital finding is essential to a dated course/timeline or monitoring item, cite only one vital parameter per item. Do not combine blood pressure, pulse, temperature, respiration or oxygen saturation into a single sentence/list item.',
   ].join('\n');
 }
 
@@ -130,9 +133,9 @@ function promptFor(patient) {
     complaints: patient.complaints,
     allergies: patient.allergies,
     medications: patient.medications,
-    labOrders: patient.labOrders,
+    labOrders: (patient.labOrders || []).filter((order) => !isVitalMeasurementOrder(order)),
     radOrders: patient.radOrders,
-    vitals: patient.vitals,
+    vitals: recordedVitals(patient),
     notes: boundedNotes(patient.notes),
     backgroundHistory: patient.backgroundHistory || [],
   };
@@ -144,7 +147,7 @@ function promptFor(patient) {
     'Use no more than 3 short bullets per heading. Summarize medication courses and clinically important changes instead of listing every order.',
     'Make the episode easy to scan: lead with the documented reason for presentation, primary diagnosis, and most important dated findings. Every clinical event or result must include its recorded date/time; say date not recorded when absent.',
     'For Key Medications, use one course/change per bullet: recorded start/stop dates, medicine, schedule and status. Do not claim a treatment was administered simply because it was ordered.',
-    'For Investigations, prioritize actual result values with units, flags, reference ranges and result timestamps, comparing serial values when available. Order status and isResultAvailable are not results; explicitly state when result values are missing.',
+    'For Investigations, include only laboratory tests and imaging: prioritize actual result values with units, flags, reference ranges and result timestamps. Vitals and vital-measurement orders are not investigations. Order status and isResultAvailable are not results; explicitly state when result values are missing.',
     'Adapt emphasis only to explicitly recorded diagnoses: for dengue, highlight supplied platelet/haematocrit results; for diabetes, supplied glucose/HbA1c results; for renal disease, supplied creatinine/electrolyte results. Never infer a disease from drugs or isolated orders.',
     'Copy recorded clinical wording exactly. Never expand abbreviations, identify organisms, correct drug names, or add a parenthetical interpretation. If a record says "CONS", write "CONS"; do not guess what it means. Never use "likely", "probably", or similar speculation.',
     'If a category has no supporting data, say "Not recorded". Preserve uncertainty and distinguish note content from structured orders.',
@@ -427,7 +430,7 @@ function longitudinalPrompt(episodes) {
         startDate: item.startDate,
         stopDate: item.stopDate,
       })),
-      labOrders: boundedList([...(patient.labOrders || [])].sort((left, right) => Number(Boolean(right.results?.length)) - Number(Boolean(left.results?.length))), 50, (order) => ({
+      labOrders: boundedList((patient.labOrders || []).filter((order) => !isVitalMeasurementOrder(order)).sort((left, right) => Number(Boolean(right.results?.length)) - Number(Boolean(left.results?.length))), 50, (order) => ({
         name: order.name,
         orderDateTime: order.orderDateTime,
         resultDateTime: order.resultDateTime,
@@ -436,7 +439,7 @@ function longitudinalPrompt(episodes) {
         results: boundedList(order.results, 12),
       })),
       radiologyOrders: boundedList(patient.radOrders, 20),
-      vitals: boundedList(patient.vitals, 50, (vital) => ({ dateTime: vital.dateTime, measurements: vital.measurements })),
+      vitals: boundedList(recordedVitals(patient), 50, (vital) => ({ dateTime: vital.dateTime, measurements: vital.measurements })),
       backgroundHistory: boundedList(patient.backgroundHistory, 30),
       notes,
     };

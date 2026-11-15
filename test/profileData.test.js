@@ -82,8 +82,8 @@ test('latest recorded observations are selected chronologically rather than by s
     { dateTime: '23 Mar 2026 @ 21:24', measurements: [{ name: 'PULSE', value: '70' }] },
   ] });
   const latest = report.find((section) => section.key === 'observations').lines.join(' ');
-  assert.match(latest, /PULSE 90/);
-  assert.doesNotMatch(latest, /PULSE 70/);
+  assert.match(latest, /PULSE: 90/);
+  assert.doesNotMatch(latest, /PULSE: 70/);
 });
 
 test('episode snapshot counts recorded material and does not synthesize missing facts', () => {
@@ -144,6 +144,6 @@ test('episode report organizes recorded presentation, note course, medications, 
   assert.match(sections['Course and dated events'], /Medication order start date: Recorded medicine/);
   assert.match(sections['Treatment \/ medication course'], /Recorded medicine.*ACTIVE/);
   assert.match(sections.Investigations, /Recorded test.*Recorded imaging/);
-  assert.match(sections['Latest observations'], /PULSE 72/);
+  assert.match(sections['Vital parameters'], /PULSE: 72/);
   assert.doesNotMatch(JSON.stringify(report), /improved|stable|resolved/i);
 });

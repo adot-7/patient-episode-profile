@@ -50,6 +50,6 @@ test('complaint remarks and vital date ranges cannot be borrowed from unrelated 
   const bad = [{ title: 'Presentation', items: ['2026-03-25: Fever; patient looks pale and dehydrated.'] }, { title: 'Hospital Course', items: ['Vitals recorded between 2026-07-03 and 2026-10-29.'] }];
   assert.equal(sourceClaimIssues(bad, [source]).length, 2);
   assert.deepEqual(sourceClaimIssues([{ title: 'Presentation', items: ['2026-07-09: Abdominal pain; patient looks pale and dehydrated.'] }], [source]), []);
-  assert.deepEqual(sourceClaimIssues([{ title: 'Investigations', items: ['2026-11-02: No vitals recorded.'] }], [source]), []);
+  assert.deepEqual(sourceClaimIssues([{ title: 'Vital parameters', items: ['2026-11-02: No vitals recorded.'] }], [source]), []);
   assert.ok(sourceClaimIssues([{ title: 'Monitoring considerations', items: ['Essential: active problem status noted on 2026-09-28.'] }], [source]).length > 0);
 });

@@ -1,3 +1,5 @@
+import { isVitalMeasurementOrder, recordedVitals, vitalParameterLines } from '../../shared/vitals.js';
+
 const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 const keyOf = (...values) => values.map((value) => clean(value).toLocaleLowerCase()).join('|');
 
@@ -126,7 +128,7 @@ export function buildPatientProfile(episodeRecords) {
       allergies.set(key, item);
     }
 
-    for (const vital of patient.vitals || []) {
+    for (const vital of recordedVitals(patient)) {
       for (const measurement of vital.measurements || []) {
         const value = Number(String(measurement.value ?? '').replace(',', '.'));
         const name = clean(measurement.name);
@@ -142,7 +144,7 @@ export function buildPatientProfile(episodeRecords) {
       }
     }
 
-    for (const order of patient.labOrders || []) {
+    for (const order of (patient.labOrders || []).filter((item) => !isVitalMeasurementOrder(item))) {
       for (const result of order.results || []) {
         const rawValue = clean(result.value).replace(/,/g, '');
         const match = rawValue.match(/^[-+]?\d+(?:\.\d+)?$/);
@@ -202,7 +204,7 @@ export function episodeSnapshot(patient) {
     complaints: sortedUnique(complaints),
     noteCount: patient?.notes?.length || 0,
     medicationCount: patient?.medications?.length || 0,
-    labOrderCount: patient?.labOrders?.length || 0,
+    labOrderCount: (patient?.labOrders || []).filter((order) => !isVitalMeasurementOrder(order)).length,
     radiologyOrderCount: patient?.radOrders?.length || 0,
   };
 }
@@ -317,7 +319,7 @@ function investigationLines(items, labelKey, dateKey) {
 }
 
 function labInvestigationLines(items) {
-  return (items || []).flatMap((order) => {
+  return (items || []).filter((order) => !isVitalMeasurementOrder(order)).flatMap((order) => {
     const name = clean(order.name);
     if (!name) return [];
     const results = (order.results || []).map((result) => [
@@ -330,14 +332,6 @@ function labInvestigationLines(items) {
     const orderLine = [order.orderDateTime, name, clean(order.status)].filter(Boolean).join(' · ');
     return orderLine ? [order.isResultAvailable ? `${orderLine} · result values not included in the Sansys response` : orderLine] : [];
   }).slice(0, 12);
-}
-
-function latestVitalLine(patient) {
-  const vital = [...(patient?.vitals || [])].filter((item) => dateSortValue(item.dateTime) !== null).sort((left, right) => compareDateValues(left.dateTime, right.dateTime)).at(-1) || patient?.vitals?.at(-1);
-  const values = (vital?.measurements || [])
-    .map((measurement) => `${clean(measurement.name)} ${clean(measurement.value)}${measurement.unit ? ` ${clean(measurement.unit)}` : ''}`)
-    .filter(Boolean);
-  return values.length ? `${vital.dateTime || 'Date not recorded'}: ${values.join(' · ')}` : '';
 }
 
 function episodeDateKey(value) {
@@ -371,7 +365,7 @@ function episodeCourseLines(patient) {
     if (medication.stopDate) add(medication.stopDate, `Medication stop date: ${name}${status ? ` (${status})` : ''}`);
   }
   for (const order of patient?.labOrders || []) {
-    if (order.orderDateTime && order.name) add(order.orderDateTime, `Lab order: ${clean(order.name)}${order.status ? ` (${clean(order.status)})` : ''}`);
+    if (order.orderDateTime && order.name) add(order.orderDateTime, `${isVitalMeasurementOrder(order) ? 'Vital measurement order' : 'Lab order'}: ${clean(order.name)}${order.status ? ` (${clean(order.status)})` : ''}`);
   }
   for (const order of patient?.radOrders || []) {
     if (order.dateTime && order.procedure) add(order.dateTime, `Imaging order: ${clean(order.procedure)}${order.status ? ` (${clean(order.status)})` : ''}`);
@@ -456,7 +450,7 @@ export function episodeReport(patient) {
     ...labLines.map((line) => `Laboratory: ${line}`),
     ...radiologyLines.map((line) => `Radiology: ${line}`),
   ];
-  const latestVital = latestVitalLine(patient);
+  const vitalParameters = vitalParameterLines([{ patient }]);
 
   return [
     { key: 'presentation', title: 'Presentation', lines: presentation },
@@ -465,7 +459,7 @@ export function episodeReport(patient) {
     { key: 'course', title: 'Course and dated events', lines: course },
     { key: 'medications', title: 'Treatment / medication course', lines: medications },
     { key: 'investigations', title: 'Investigations', lines: investigations },
-    { key: 'observations', title: 'Latest observations', lines: latestVital ? [latestVital] : [] },
+    { key: 'observations', title: 'Vital parameters', lines: vitalParameters },
   ].filter((section) => section.lines.length > 0);
 }
 

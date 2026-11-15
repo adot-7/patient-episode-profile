@@ -148,6 +148,14 @@ button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visibl
 .vital-chart figcaption strong { color: #222; font-size: 10px; font-weight: 700; }
 .vital-chart figcaption span { color: #555; font-size: 9px; }
 .chart-latest { margin: 3px 1px; color: #444; font-size: 11px; line-height: 1.4; }
+.vital-parameter-list { margin-top: 6px; margin-bottom: 6px; }
+.vital-parameter-row { display: grid; grid-template-columns: minmax(140px, .35fr) minmax(0, 1fr); gap: 6px 12px; padding: 7px 3px; border-bottom: 1px solid var(--border); }
+.vital-parameter-row:last-child { border-bottom: 0; }
+.vital-parameter-row dt { font-size: 11px; font-weight: 700; overflow-wrap: anywhere; }
+.vital-parameter-row dd { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; font-size: 12px; }
+.vital-parameter-row dd span { color: var(--muted); font-size: 11px; }
+.vital-measurement-orders { margin-top: 6px; margin-bottom: 7px; border-top: 1px solid var(--border); }
+.vital-measurement-orders summary { padding: 6px 2px; cursor: pointer; font-size: 11px; }
 .vital-chart svg { display: block; width: 100%; height: auto; overflow: visible; }
 .chart-grid { stroke: #ddd; stroke-width: 1; }
 .chart-axis-label, .chart-date-label { fill: #444; font: 9px "Segoe UI", Arial, sans-serif; }
